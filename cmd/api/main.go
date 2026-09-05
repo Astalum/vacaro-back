@@ -11,9 +11,14 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/astalum/vacaro-back/internal/auth"
 	"github.com/astalum/vacaro-back/internal/config"
 	"github.com/astalum/vacaro-back/internal/database"
+	googleclient "github.com/astalum/vacaro-back/internal/google"
 	"github.com/astalum/vacaro-back/internal/handler"
+	appmiddleware "github.com/astalum/vacaro-back/internal/middleware"
+	"github.com/astalum/vacaro-back/internal/repository"
+	"github.com/astalum/vacaro-back/internal/service"
 )
 
 func main() {
@@ -40,14 +45,42 @@ func run() error {
 
 	slog.Info("connected to database")
 
+	sessions, err := auth.NewManager(cfg.SessionKey, cfg.SessionCookieSecure)
+	if err != nil {
+		return fmt.Errorf("create session manager: %w", err)
+	}
+	oauthStates, err := auth.NewOAuthStateManager(cfg.SessionKey, cfg.SessionCookieSecure)
+	if err != nil {
+		return fmt.Errorf("create OAuth state manager: %w", err)
+	}
+	store := repository.New(db)
+	application := service.New(store, cfg.GuestTTL, cfg.PublicAppURL)
+	if cfg.Google.Enabled {
+		tokenBox, err := auth.NewBox(cfg.Google.TokenEncryptionKey)
+		if err != nil {
+			return fmt.Errorf("create Google token cipher: %w", err)
+		}
+		googleProvider := googleclient.New(googleclient.Config{
+			ClientID:            cfg.Google.ClientID,
+			ClientSecret:        cfg.Google.ClientSecret,
+			LoginRedirectURL:    cfg.Google.LoginRedirectURL,
+			CalendarRedirectURL: cfg.Google.CalendarRedirectURL,
+		})
+		application.ConfigureGoogle(googleProvider, tokenBox, cfg.RegisteredTTL)
+	}
+
 	mux := http.NewServeMux()
 	handler.NewHealth(db).Register(mux)
+	handler.NewAPI(application, sessions, oauthStates, cfg.PublicAppURL).Register(mux)
 
 	server := &http.Server{
 		Addr:              ":" + cfg.Port,
-		Handler:           mux,
+		Handler:           appmiddleware.Chain(mux, appmiddleware.RequestID, appmiddleware.AccessLog, appmiddleware.Recover),
 		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       15 * time.Second,
+		WriteTimeout:      30 * time.Second,
 		IdleTimeout:       60 * time.Second,
+		MaxHeaderBytes:    1 << 20,
 	}
 
 	shutdownCtx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)

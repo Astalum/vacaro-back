@@ -1,110 +1,90 @@
-# vacaro-back API設計書
+# vacaro-back API仕様書
 
-## 1. 目的
+## 1. 文書情報
 
-本書は、vacaro-backが提供するHTTP APIの契約を定義する。対象は日程調整イベントの作成、参加、参加可能時間の回答、候補日時の確認、日時確定、および将来のGoogle認証・Googleカレンダー連携である。
-
-DB構造と制約については[データベース設計書](database-design.md)を参照する。
-
-## 2. API基本方針
-
-| 項目 | 方針 |
+| 項目 | 内容 |
 |---|---|
-| プロトコル | HTTPS。本番環境ではHTTPを受け付けない |
-| API形式 | JSONを使用するREST API |
+| 対象API | vacaro-back HTTP API |
+| APIバージョン | v1 |
 | ベースパス | `/api/v1` |
-| Content-Type | `application/json; charset=utf-8` |
-| 日時形式 | RFC 3339。APIではUTCの`Z`表記を基本とする |
-| ID形式 | UUID文字列 |
-| JSON命名 | `snake_case` |
-| 時間区間 | 開始を含み終了を含まない`[start_at, end_at)` |
-| 認証 | HttpOnly Cookieによるセッション |
+| 仕様更新日 | 2026-09-04 |
+| 実装 | Go `net/http` |
+| 認証 | 暗号化されたHttpOnly Cookie |
+
+本書は現在のサーバー実装を基準としたAPI契約である。DB構造については[データベース設計書](database-design.md)を参照する。
+
+## 2. 共通仕様
+
+### 2.1 通信・データ形式
+
+| 項目 | 仕様 |
+|---|---|
+| 本番プロトコル | HTTPS |
+| リクエスト・レスポンス | JSON |
+| Content-Type | `application/json` |
+| JSONフィールド名 | `snake_case` |
+| 日時 | RFC 3339。レスポンスはUTCの`Z`表記 |
+| ID | UUID文字列 |
 | 文字コード | UTF-8 |
+| 時間区間 | 開始を含み終了を含まない`[start_at, end_at)` |
+| JSONボディ上限 | 1 MiB |
 
-クライアントはイベントの`time_zone`を使って日時を表示する。APIへ送信された日時はUTCへ正規化してDBへ保存する。
+JSONリクエストでは未知のフィールドを許可しない。また、1つのJSONオブジェクトの後に別の値が続くリクエストを拒否する。
 
-## 3. 実装フェーズ
+### 2.2 認証
 
-### Phase 1: MVP
+認証が必要なAPIでは次のCookieを送信する。
 
-- ゲストセッション
-- イベント作成・取得・更新・取消
-- 招待URLによるイベント参加
-- 参加者一覧
-- 参加可能時間の登録・取得
-- 共通候補日時の計算
-- 日程確定
-
-### Phase 2: Google連携
-
-- Googleログイン
-- ゲストユーザーからGoogleユーザーへの昇格
-- Googleカレンダー連携・解除
-- Googleカレンダーを使った参加可能時間の作成支援
-
-## 4. 認証とセッション
-
-### 4.1 MVPの方式
-
-MVPでは、サーバーが署名・暗号化したセッションCookieを使用する。Cookieには最低限、ユーザーID、アカウント種別、有効期限を含める。
-
-```text
-Cookie: vacaro_session=<encrypted value>
+```http
+Cookie: vacaro_session=<encrypted-value>
 ```
 
 Cookie属性：
 
 - `HttpOnly`
-- `Secure`（本番環境）
 - `SameSite=Lax`
 - `Path=/`
-- ゲストセッションの有効期限と`users.guest_expires_at`を一致させる
+- 本番環境では`Secure`
+- ゲストの標準有効期間は168時間
+- Google認証済みユーザーの標準有効期間は720時間
 
-MVPではフロントエンドとAPIを同一サイト配下へ配置する。別サイト構成にする場合は、CORS、`SameSite=None`、CSRF対策を別途設計する。
+本書の認証区分は次の意味を持つ。
 
-署名鍵は環境変数へ直接埋め込まず、デプロイ環境のSecret Managerから供給する。ログアウトはCookieを失効させる。サーバー側からの即時失効や複数端末のセッション管理が必要になった場合は、`sessions`テーブルを追加する。
+| 区分 | 条件 |
+|---|---|
+| 不要 | セッションなしで利用可能 |
+| 必要 | 有効なゲストまたはGoogle認証済みセッション |
+| 参加者 | 対象イベントの`participants`に現在ユーザーが存在 |
+| 主催者 | 対象イベントの`created_by_user_id`が現在ユーザーと一致 |
+| Google認証 | `auth_accounts`に現在ユーザーのGoogleアカウントが存在 |
+| Calendar連携 | Google認証済みでRefresh Tokenを保存済み |
 
-### 4.2 CSRF対策
+### 2.3 リクエストID
 
-- 状態を変更するリクエストでは`Origin`ヘッダーを検証する。
-- Cookieの`SameSite=Lax`を有効にする。
-- クロスサイト構成へ変更する場合はCSRFトークンを追加する。
-- `GET`と`HEAD`では状態を変更しない。
+すべてのレスポンスに`X-Request-ID`を付ける。クライアントが128文字以下の`X-Request-ID`を送った場合はその値を引き継ぎ、それ以外はサーバーが生成する。
 
-### 4.3 Google認証
+### 2.4 成功レスポンス
 
-Google認証ではAuthorization Code Flowを使用する。コールバックでは`state`と`nonce`を検証し、Googleの`sub`を`auth_accounts.provider_subject`として扱う。メールアドレスだけでユーザーを同一視しない。
-
-Googleカレンダー権限はログイン権限と分け、利用者がカレンダー連携を選択したときだけ要求する。
-
-## 5. 共通レスポンス
-
-### 5.1 成功レスポンス
-
-単一リソース：
+通常の成功レスポンス：
 
 ```json
 {
-  "data": {
-    "id": "0198d540-45b8-7f91-9fa8-4d7a455b1022"
-  }
+  "data": {}
 }
 ```
 
-一覧：
+一覧レスポンス：
 
 ```json
 {
   "data": [],
-  "meta": {
-    "next_cursor": null
-  }
+  "meta": {}
 }
 ```
 
-削除やCookie破棄など、返却データがない場合は`204 No Content`を返す。
+返却データがない場合は`204 No Content`とし、ボディを返さない。ヘルスチェックとOAuthリダイレクトはこの形式の例外とする。
 
-### 5.2 エラーレスポンス
+### 2.5 エラーレスポンス
 
 ```json
 {
@@ -112,50 +92,35 @@ Googleカレンダー権限はログイン権限と分け、利用者がカレ�
     "code": "validation_failed",
     "message": "入力内容を確認してください",
     "fields": {
-      "window_end_at": "window_start_atより後を指定してください"
+      "title": "1～200文字で指定してください"
     },
-    "request_id": "01J8E7JH0G5P5NQ4R6Y2K8C9AX"
+    "request_id": "c4c218ac9ac85af0d8fb7250e25c5354"
   }
 }
 ```
 
-本番環境ではSQL、スタックトレース、OAuthトークン、招待トークンなどの内部情報をレスポンスへ含めない。
+`fields`はフィールド単位のエラーがない場合に`null`となることがある。認証ミドルウェアの`401`や`invalid_json`では`fields`を含めない。
 
-### 5.3 ステータスコード
+| HTTP Status | code | 条件 |
+|---:|---|---|
+| `400` | `invalid_json` | JSON不正、未知フィールド、複数JSON値 |
+| `400` | `oauth_failed` | OAuthコールバック、ID Token、Google API処理の失敗 |
+| `401` | `authentication_required` | セッションなし、改ざん、期限切れ |
+| `403` | `permission_denied` | 主催者限定操作などの権限不足 |
+| `403` | `google_authentication_required` | 回答コピーでGoogle認証がない |
+| `404` | `resource_not_found` | リソースなし、イベントに未参加、無効な招待トークン |
+| `409` | `already_joined` | 同一イベントへ参加済み |
+| `409` | `event_not_open` | 受付中でないイベントへの更新 |
+| `409` | `organizer_cannot_leave` | 主催者によるイベント退出 |
+| `409` | `invalid_event_transition` | 許可されていない状態遷移 |
+| `409` | `calendar_not_connected` | Googleカレンダー未連携 |
+| `422` | `validation_failed` | 業務入力規則への違反 |
+| `500` | `internal_error` | 予期しない内部エラー |
+| `503` | `google_not_configured` | サーバー側のGoogle連携設定が無効 |
 
-| Status | 用途 |
-|---:|---|
-| `200 OK` | 取得・更新成功 |
-| `201 Created` | リソース作成成功 |
-| `204 No Content` | 取消・ログアウト成功 |
-| `400 Bad Request` | JSON形式、日時形式などが不正 |
-| `401 Unauthorized` | セッションがない、無効、期限切れ |
-| `403 Forbidden` | 認証済みだが操作権限がない |
-| `404 Not Found` | リソースがない、または存在を秘匿する |
-| `409 Conflict` | 重複参加、時間帯重複、不正な状態遷移 |
-| `422 Unprocessable Content` | JSONは正しいが業務ルールに違反 |
-| `429 Too Many Requests` | レート制限超過 |
-| `500 Internal Server Error` | 予期しないサーバーエラー |
-| `503 Service Unavailable` | DBなど依存サービスを利用できない |
+## 3. リソース表現
 
-主なエラーコード：
-
-- `invalid_json`
-- `validation_failed`
-- `authentication_required`
-- `invalid_session`
-- `permission_denied`
-- `resource_not_found`
-- `already_joined`
-- `availability_overlap`
-- `event_not_open`
-- `invalid_event_transition`
-- `database_unavailable`
-- `internal_error`
-
-## 6. リソース表現
-
-### 6.1 User
+### 3.1 User
 
 ```json
 {
@@ -163,19 +128,24 @@ Googleカレンダー権限はログイン権限と分け、利用者がカレ�
   "account_type": "guest",
   "display_name": "田中",
   "email": null,
-  "guest_expires_at": "2026-09-10T03:00:00Z",
-  "created_at": "2026-09-03T03:00:00Z",
-  "updated_at": "2026-09-03T03:00:00Z"
+  "guest_expires_at": "2026-09-11T03:00:00Z",
+  "created_at": "2026-09-04T03:00:00Z",
+  "updated_at": "2026-09-04T03:00:00Z"
 }
 ```
 
-他ユーザーへ返す場合、`email`と`guest_expires_at`は含めない。
+| フィールド | 型 | 説明 |
+|---|---|---|
+| `account_type` | string | `guest`または`registered` |
+| `email` | string/null | Google認証済みユーザーのメールアドレス |
+| `guest_expires_at` | string/null | ゲストの失効日時。登録ユーザーは`null` |
 
-### 6.2 Event
+### 3.2 Event
 
 ```json
 {
   "id": "0198d543-e7f0-7df2-95fa-cee649624cef",
+  "created_by_user_id": "0198d540-45b8-7f91-9fa8-4d7a455b1022",
   "title": "開発ミーティング",
   "description": "次回リリースについて相談します",
   "time_zone": "Asia/Tokyo",
@@ -186,107 +156,116 @@ Googleカレンダー権限はログイン権限と分け、利用者がカレ�
   "confirmed_start_at": null,
   "confirmed_end_at": null,
   "response_deadline_at": "2026-09-09T12:00:00Z",
-  "created_at": "2026-09-03T03:00:00Z",
-  "updated_at": "2026-09-03T03:00:00Z"
+  "created_at": "2026-09-04T03:00:00Z",
+  "updated_at": "2026-09-04T03:00:00Z"
 }
 ```
 
-`invite_token`と`invite_url`はイベント作成時またはトークン再発行時に限り、主催者へ返す。DBに保存するのは`invite_token_hash`であるため、通常のイベント取得APIから生のトークンを再取得することはできない。
+`status`は`open`、`confirmed`、`cancelled`のいずれか。公開招待APIでは`created_by_user_id`を返さない。
 
-### 6.3 Participant
+### 3.3 Participant
 
 ```json
 {
   "id": "0198d545-6200-7973-8609-ab29d9ab461a",
+  "event_id": "0198d543-e7f0-7df2-95fa-cee649624cef",
   "user_id": "0198d540-45b8-7f91-9fa8-4d7a455b1022",
   "display_name": "田中",
   "role": "member",
   "response_status": "submitted",
-  "created_at": "2026-09-03T03:10:00Z",
-  "updated_at": "2026-09-03T03:20:00Z"
+  "created_at": "2026-09-04T03:10:00Z",
+  "updated_at": "2026-09-04T03:20:00Z"
 }
 ```
 
-### 6.4 AvailabilityInterval
+`role`は`organizer`または`member`、`response_status`は`pending`または`submitted`。
+
+### 3.4 AvailabilityInterval
 
 ```json
 {
   "id": "0198d547-3c18-76ee-b85c-e99897199aef",
+  "participant_id": "0198d545-6200-7973-8609-ab29d9ab461a",
   "start_at": "2026-09-10T01:00:00Z",
   "end_at": "2026-09-10T03:00:00Z",
   "source": "manual",
-  "created_at": "2026-09-03T03:20:00Z",
-  "updated_at": "2026-09-03T03:20:00Z"
+  "created_at": "2026-09-04T03:20:00Z",
+  "updated_at": "2026-09-04T03:20:00Z"
 }
 ```
 
-## 7. エンドポイント一覧
+`source`は`manual`または`google_calendar`。Googleカレンダーのプレビュー応答ではID・参加者ID・作成日時を返さない。
 
-### 7.1 システム
+## 4. エンドポイント一覧
 
-| Method | Path | 認証 | 説明 |
-|---|---|---|---|
-| `GET` | `/health` | 不要 | APIプロセスの生存確認 |
-| `GET` | `/ready` | 不要 | DBを含む受付可能状態の確認 |
+| Method | Path | 認証 | 成功 |
+|---|---|---|---:|
+| `GET` | `/health` | 不要 | `200` |
+| `GET` | `/ready` | 不要 | `200` |
+| `POST` | `/api/v1/guest-sessions` | 不要 | `201` |
+| `GET` | `/api/v1/me` | 必要 | `200` |
+| `PATCH` | `/api/v1/me` | 必要 | `200` |
+| `DELETE` | `/api/v1/session` | 必要 | `204` |
+| `POST` | `/api/v1/events` | 必要 | `201` |
+| `GET` | `/api/v1/events` | 必要 | `200` |
+| `GET` | `/api/v1/events/{event_id}` | 参加者 | `200` |
+| `PATCH` | `/api/v1/events/{event_id}` | 主催者 | `200` |
+| `DELETE` | `/api/v1/events/{event_id}` | 主催者 | `204` |
+| `POST` | `/api/v1/events/{event_id}/invite-token` | 主催者 | `200` |
+| `PUT` | `/api/v1/events/{event_id}/confirmation` | 主催者 | `200` |
+| `DELETE` | `/api/v1/events/{event_id}/confirmation` | 主催者 | `200` |
+| `GET` | `/api/v1/invitations/{invite_token}` | 不要 | `200` |
+| `POST` | `/api/v1/invitations/{invite_token}/participants` | 必要 | `201` |
+| `GET` | `/api/v1/events/{event_id}/participants` | 参加者 | `200` |
+| `DELETE` | `/api/v1/events/{event_id}/participants/me` | 一般参加者 | `204` |
+| `GET` | `/api/v1/events/{event_id}/my-availability` | 参加者 | `200` |
+| `PUT` | `/api/v1/events/{event_id}/my-availability` | 参加者 | `200` |
+| `POST` | `/api/v1/events/{event_id}/my-availability/copy` | Google認証・参加者 | `200` |
+| `GET` | `/api/v1/events/{event_id}/availability` | 参加者 | `200` |
+| `GET` | `/api/v1/events/{event_id}/candidates` | 参加者 | `200` |
+| `GET` | `/api/v1/auth/google/start` | 不要 | `303` |
+| `GET` | `/api/v1/auth/google/callback` | 不要 | `303` |
+| `POST` | `/api/v1/integrations/google-calendar` | Google認証 | `200` |
+| `GET` | `/api/v1/integrations/google-calendar/calendars` | Google認証・Calendar連携 | `200` |
+| `GET` | `/api/v1/integrations/google-calendar/callback` | Google認証 | `303` |
+| `DELETE` | `/api/v1/integrations/google-calendar` | Google認証・Calendar連携 | `204` |
+| `POST` | `/api/v1/events/{event_id}/google-calendar-availability/preview` | 参加者・Calendar連携 | `200` |
 
-システム用エンドポイントには`/api/v1`を付けない。
+## 5. システム
 
-### 7.2 セッション・ユーザー
+### 5.1 Liveness
 
-| Method | Path | 認証 | 説明 |
-|---|---|---|---|
-| `POST` | `/api/v1/guest-sessions` | 不要 | ゲストユーザーとセッションを作成 |
-| `GET` | `/api/v1/me` | 必要 | 自分のユーザー情報を取得 |
-| `PATCH` | `/api/v1/me` | 必要 | 自分の表示名を変更 |
-| `DELETE` | `/api/v1/session` | 必要 | ログアウト |
+```http
+GET /health
+```
 
-### 7.3 イベント
+DBへ接続せず、APIプロセスの生存を確認する。
 
-| Method | Path | 認証 | 説明 |
-|---|---|---|---|
-| `POST` | `/api/v1/events` | 必要 | イベントと主催者参加情報を作成 |
-| `GET` | `/api/v1/events` | 必要 | 自分が参加しているイベント一覧 |
-| `GET` | `/api/v1/events/{event_id}` | 参加者 | イベント詳細を取得 |
-| `PATCH` | `/api/v1/events/{event_id}` | 主催者 | 未確定イベントの内容を変更 |
-| `DELETE` | `/api/v1/events/{event_id}` | 主催者 | イベントを取消状態に変更 |
-| `POST` | `/api/v1/events/{event_id}/invite-token` | 主催者 | 招待トークンを再発行 |
-| `PUT` | `/api/v1/events/{event_id}/confirmation` | 主催者 | 日程を確定 |
-| `DELETE` | `/api/v1/events/{event_id}/confirmation` | 主催者 | 確定を解除して受付中へ戻す |
+```json
+{"status":"ok"}
+```
 
-### 7.4 招待・参加者
+### 5.2 Readiness
 
-| Method | Path | 認証 | 説明 |
-|---|---|---|---|
-| `GET` | `/api/v1/invitations/{invite_token}` | 不要 | 招待先イベントの公開情報を取得 |
-| `POST` | `/api/v1/invitations/{invite_token}/participants` | 必要 | 現在のユーザーとして参加 |
-| `GET` | `/api/v1/events/{event_id}/participants` | 参加者 | 参加者一覧を取得 |
-| `DELETE` | `/api/v1/events/{event_id}/participants/me` | 一般参加者 | イベントから退出 |
+```http
+GET /ready
+```
 
-### 7.5 参加可能時間・候補
+2秒以内にDBへ接続できた場合は`200`を返す。
 
-| Method | Path | 認証 | 説明 |
-|---|---|---|---|
-| `GET` | `/api/v1/events/{event_id}/my-availability` | 参加者 | 自分の参加可能時間を取得 |
-| `PUT` | `/api/v1/events/{event_id}/my-availability` | 参加者 | 自分の参加可能時間を一括置換 |
-| `GET` | `/api/v1/events/{event_id}/availability` | 参加者 | 全参加者の回答を取得 |
-| `GET` | `/api/v1/events/{event_id}/candidates` | 参加者 | 共通候補日時を計算して取得 |
+```json
+{"status":"ok"}
+```
 
-### 7.6 Google連携（Phase 2）
+接続できない場合は`503`を返す。
 
-| Method | Path | 認証 | 説明 |
-|---|---|---|---|
-| `GET` | `/api/v1/auth/google/start` | 不要 | Google認証を開始 |
-| `GET` | `/api/v1/auth/google/callback` | 不要 | Google認証コールバック |
-| `POST` | `/api/v1/integrations/google-calendar` | Google認証 | カレンダー連携を開始 |
-| `GET` | `/api/v1/integrations/google-calendar/callback` | Google認証 | カレンダー認可コールバック |
-| `DELETE` | `/api/v1/integrations/google-calendar` | Google認証 | カレンダー連携を解除 |
-| `POST` | `/api/v1/events/{event_id}/google-calendar-availability/preview` | 参加者・連携済み | カレンダーから空き時間候補を計算 |
+```json
+{"status":"unavailable"}
+```
 
-Googleカレンダーから得た予定のタイトル、説明、参加者などはAPIレスポンスへ含めない。
+## 6. セッション・ユーザー
 
-## 8. 主要エンドポイント詳細
-
-### 8.1 ゲストセッション作成
+### 6.1 ゲストセッション作成
 
 ```http
 POST /api/v1/guest-sessions
@@ -295,29 +274,48 @@ POST /api/v1/guest-sessions
 Request：
 
 ```json
-{
-  "display_name": "田中"
-}
+{"display_name":"田中"}
 ```
 
-処理：
+- `display_name`: 前後空白を除いて1～100文字
+- ゲストユーザーとセッションCookieを作成
+- Response: `201`、`data`はUser
 
-1. `users`へ`account_type = guest`として登録する。
-2. `guest_expires_at`を設定する。
-3. 暗号化されたセッションCookieを発行する。
-4. `201 Created`でユーザー情報を返す。
+### 6.2 自分の情報取得
 
-入力制約：
+```http
+GET /api/v1/me
+```
 
-- `display_name`: 前後の空白を除いて1～100文字
+Response: `200`、`data`はUser。
 
-### 8.2 イベント作成
+### 6.3 表示名変更
+
+```http
+PATCH /api/v1/me
+```
+
+```json
+{"display_name":"新しい表示名"}
+```
+
+Response: `200`、`data`は更新後のUser。
+
+### 6.4 ログアウト
+
+```http
+DELETE /api/v1/session
+```
+
+セッションCookieを削除し、`204`を返す。
+
+## 7. イベント
+
+### 7.1 イベント作成
 
 ```http
 POST /api/v1/events
 ```
-
-Request：
 
 ```json
 {
@@ -331,111 +329,173 @@ Request：
 }
 ```
 
-Response：`201 Created`
+入力規則：
+
+- `title`: 必須、1～200文字
+- `description`: 任意、最大5,000文字。空白だけの場合は`null`として保存
+- `time_zone`: 必須、有効なIANAタイムゾーン
+- `window_start_at`: 必須
+- `window_end_at`: 必須、`window_start_at`より後
+- `duration_minutes`: 5～1,440分かつイベント期間以下
+- `response_deadline_at`: 任意、`window_end_at`以前
+
+作成者は同じトランザクションで主催者として参加する。Response: `201`。
 
 ```json
 {
   "data": {
     "id": "0198d543-e7f0-7df2-95fa-cee649624cef",
-    "title": "開発ミーティング",
     "status": "open",
     "invite_token": "<random-token>",
-    "invite_url": "https://vacaro.example/invitations/<random-token>"
+    "invite_url": "http://localhost:3000/invitations/<random-token>"
   }
 }
 ```
 
-処理は1トランザクションとする。
+実際のレスポンスにはEventの全フィールドも含む。生の招待トークンは作成時と再発行時だけ返す。
 
-1. 暗号学的に安全な招待トークンを生成する。
-2. SHA-256ハッシュを`events.invite_token_hash`へ保存する。
-3. イベントを作成する。
-4. 現在のユーザーを`role = organizer`として`participants`へ追加する。
+### 7.2 イベント一覧
 
-生の招待トークンを紛失した場合は`POST /api/v1/events/{event_id}/invite-token`で再発行する。再発行後は以前の招待トークンを直ちに無効とする。
+```http
+GET /api/v1/events?status=open&limit=20&cursor=<opaque-cursor>
+```
 
-入力制約：
+| Query | 省略時 | 制約 |
+|---|---:|---|
+| `status` | 全状態 | `open`、`confirmed`、`cancelled` |
+| `limit` | `20` | 最大`100`。0以下や数値以外も`20` |
+| `cursor` | 先頭 | レスポンスで得た値をそのまま指定 |
 
-- `title`: 1～200文字
-- `description`: 最大5,000文字
-- `time_zone`: 有効なIANAタイムゾーン
-- `window_start_at < window_end_at`
-- `duration_minutes`: 5～1,440分
-- `duration_minutes`はイベント期間以下
-- `response_deadline_at`を指定する場合は`window_end_at`以前
+現在ユーザーが参加しているイベントを`created_at DESC, id DESC`で返す。
 
-### 8.3 招待情報取得
+```json
+{
+  "data": [],
+  "meta": {"next_cursor": null}
+}
+```
+
+### 7.3 イベント詳細
+
+```http
+GET /api/v1/events/{event_id}
+```
+
+Response: `200`、`data`はEvent。未参加の場合は`404`。
+
+### 7.4 イベント更新
+
+```http
+PATCH /api/v1/events/{event_id}
+```
+
+主催者かつ`open`状態の場合のみ更新できる。すべてのフィールドは任意。
+
+```json
+{
+  "title": "更新後タイトル",
+  "description": null,
+  "time_zone": "Asia/Tokyo",
+  "window_start_at": "2026-09-10T00:00:00Z",
+  "window_end_at": "2026-09-11T12:00:00Z",
+  "duration_minutes": 90,
+  "response_deadline_at": null
+}
+```
+
+`description`と`response_deadline_at`へ`null`を送ると値を削除する。変更後の期間が登録済み参加可能時間を除外する場合は`422`。Response: `200`、更新後のEvent。
+
+### 7.5 イベント取消
+
+```http
+DELETE /api/v1/events/{event_id}
+```
+
+イベントを物理削除せず`cancelled`にし、`204`を返す。既に取消済みの場合も`204`。
+
+### 7.6 招待トークン再発行
+
+```http
+POST /api/v1/events/{event_id}/invite-token
+```
+
+主催者かつ`open`状態で利用できる。以前のトークンは直ちに無効になる。Response: `200`、Eventに新しい`invite_token`と`invite_url`を加えた形式。
+
+### 7.7 日程確定
+
+```http
+PUT /api/v1/events/{event_id}/confirmation
+```
+
+```json
+{
+  "start_at": "2026-09-10T01:00:00Z",
+  "end_at": "2026-09-10T02:00:00Z"
+}
+```
+
+- イベント期間内であること
+- `end_at - start_at`が`duration_minutes`と一致すること
+- 主催者のみ実行可能
+
+Response: `200`、`status=confirmed`のEvent。
+
+### 7.8 確定解除
+
+```http
+DELETE /api/v1/events/{event_id}/confirmation
+```
+
+`confirmed`から`open`へ戻し、確定日時を`null`にする。Response: `200`、更新後のEvent。
+
+## 8. 招待・参加者
+
+### 8.1 公開招待情報
 
 ```http
 GET /api/v1/invitations/{invite_token}
 ```
 
-未認証でも取得できる情報：
+Response: `200`、`created_by_user_id`を除いたEvent。無効なトークンまたは取消済みイベントは`404`。
 
-- タイトル
-- 説明
-- 表示タイムゾーン
-- 回答対象期間
-- 必要時間
-- ステータス
-- 回答期限
-
-参加者名、参加可能時間、ユーザーID、主催者のメールアドレスは返さない。無効または取消済みのトークンには`404 Not Found`を返す。
-
-### 8.4 イベント参加
+### 8.2 イベント参加
 
 ```http
 POST /api/v1/invitations/{invite_token}/participants
 ```
 
-Request：
-
 ```json
-{
-  "display_name": "田中"
-}
+{"display_name":"田中"}
 ```
 
-現在のユーザーを`participants`へ追加する。既に参加済みの場合は`409 already_joined`を返す。イベントが`open`でない場合は`409 event_not_open`を返す。
+- `display_name`: 前後空白を除いて1～100文字
+- イベントは`open`であること
+- 同じユーザーが参加済みの場合は`409 already_joined`
+- Response: `201`、`data`は作成されたParticipant
 
-未認証の場合、クライアントは先に`POST /api/v1/guest-sessions`を呼び出す。
-
-### 8.5 参加可能時間の一括更新
+### 8.3 参加者一覧
 
 ```http
-PUT /api/v1/events/{event_id}/my-availability
+GET /api/v1/events/{event_id}/participants
 ```
 
-Request：
+Response: `200`、`data`はParticipant配列。主催者を先頭に、作成日時順で返す。
 
-```json
-{
-  "intervals": [
-    {
-      "start_at": "2026-09-10T01:00:00Z",
-      "end_at": "2026-09-10T03:00:00Z"
-    },
-    {
-      "start_at": "2026-09-10T05:00:00Z",
-      "end_at": "2026-09-10T07:00:00Z"
-    }
-  ]
-}
+### 8.4 イベント退出
+
+```http
+DELETE /api/v1/events/{event_id}/participants/me
 ```
 
-処理：
+一般参加者をイベントから削除し、回答も同時に削除する。主催者は退出できず`409 organizer_cannot_leave`。成功時は`204`。
 
-1. イベントまたは参加者を`SELECT ... FOR UPDATE`でロックする。
-2. イベントが`open`か検証する。
-3. 各区間がイベント期間内か検証する。
-4. 区間を開始日時順へ並べる。
-5. 重複区間を拒否し、隣接区間を統合する。
-6. 既存区間を削除して新しい区間を登録する。
-7. `participants.response_status`を`submitted`へ変更する。
+## 9. 参加可能時間・候補
 
-上記全体を1トランザクションで実行する。空配列は「参加可能時間なし」という回答として受け付け、`response_status`は`submitted`とする。1回の更新は最大100区間とする。
+### 9.1 自分の回答取得
 
-Response：`200 OK`
+```http
+GET /api/v1/events/{event_id}/my-availability
+```
 
 ```json
 {
@@ -446,15 +506,89 @@ Response：`200 OK`
 }
 ```
 
-### 8.6 候補日時取得
+`intervals`は開始日時順のAvailabilityInterval配列。
+
+### 9.2 自分の回答を一括置換
+
+```http
+PUT /api/v1/events/{event_id}/my-availability
+```
+
+```json
+{
+  "intervals": [
+    {
+      "start_at": "2026-09-10T01:00:00Z",
+      "end_at": "2026-09-10T03:00:00Z"
+    }
+  ]
+}
+```
+
+- 最大100区間
+- イベントは`open`であること
+- 各区間はイベント期間内かつ`start_at < end_at`
+- 重複区間は`422`
+- 隣接区間は統合
+- 既存回答をすべて置換
+- 空配列は「参加可能時間なし」という提出済み回答
+
+Response: `200`。
+
+```json
+{
+  "data": {
+    "response_status": "submitted",
+    "intervals": []
+  }
+}
+```
+
+### 9.3 別イベントから回答をコピー
+
+```http
+POST /api/v1/events/{target_event_id}/my-availability/copy
+```
+
+```json
+{"source_event_id":"0198d543-e7f0-7df2-95fa-cee649624cef"}
+```
+
+- Google認証必須
+- コピー元とコピー先の両方に参加していること
+- コピー元とコピー先は別イベントであること
+- コピー元の回答が`submitted`であること
+- コピー先は`open`であること
+- コピー先期間と重なる絶対日時だけを切り取ってコピー
+- コピー先の既存回答は維持し、重複・隣接区間を統合
+- コピー元に区間があるが重なる区間がない場合は`422`
+
+時刻だけを別日へ移動する機能ではない。Response: `200`、一括置換と同じ形式。
+
+### 9.4 全参加者の回答取得
+
+```http
+GET /api/v1/events/{event_id}/availability
+```
+
+```json
+{
+  "data": [
+    {
+      "participant": {},
+      "intervals": []
+    }
+  ]
+}
+```
+
+Response: `200`。参加者ごとにParticipantとAvailabilityInterval配列を返す。
+
+### 9.5 共通候補日時
 
 ```http
 GET /api/v1/events/{event_id}/candidates?limit=20
 ```
-
-イベントの`duration_minutes`を満たす時間帯を、参加可能人数の多い順に返す。同数の場合は開始日時の早い順とする。
-
-Response：`200 OK`
 
 ```json
 {
@@ -462,145 +596,172 @@ Response：`200 OK`
     {
       "start_at": "2026-09-10T01:00:00Z",
       "end_at": "2026-09-10T02:00:00Z",
-      "available_participant_count": 4,
-      "total_participant_count": 5,
-      "available_participant_ids": [
-        "0198d545-6200-7973-8609-ab29d9ab461a"
-      ]
+      "available_participant_count": 2,
+      "total_participant_count": 3,
+      "available_participant_ids": ["0198d545-6200-7973-8609-ab29d9ab461a"]
     }
   ],
-  "meta": {
-    "limit": 20
+  "meta": {"limit": 20}
+}
+```
+
+イベントの`duration_minutes`を満たす開始候補を参加可能人数の降順、同数なら開始日時の昇順で返す。未回答者は`total_participant_count`には含むが参加可能人数には含めない。`limit`は標準20、最大100。
+
+## 10. Google認証・Calendar連携
+
+Google関連の環境変数がすべて未設定の場合、Google以外のAPIは通常どおり利用できる。Google OAuth・Calendar APIは`503 google_not_configured`を返す。
+
+### 10.1 Googleログイン開始
+
+```http
+GET /api/v1/auth/google/start
+```
+
+暗号化した10分間有効のOAuth state Cookieを設定し、Google認可画面へ`303 See Other`でリダイレクトする。ゲストセッションがあれば、そのユーザーIDをstateへ関連付ける。
+
+### 10.2 Googleログインコールバック
+
+```http
+GET /api/v1/auth/google/callback?code=<code>&state=<state>
+```
+
+次を検証する。
+
+- state Cookie、state値、有効期限、用途
+- ID Tokenの署名・issuer・audience・有効期限
+- nonce
+- `email_verified`
+
+Googleの`sub`をアカウント識別子として使用し、メールアドレスだけでは同一人物と判定しない。ゲストから開始した場合は、そのゲストが所有・参加するイベントをGoogleユーザーへ引き継ぐ。
+
+成功時は登録ユーザー用Cookieを設定し、次へ`303`でリダイレクトする。
+
+```text
+{PUBLIC_APP_URL}?google_login=success
+```
+
+### 10.3 Googleカレンダー連携開始
+
+```http
+POST /api/v1/integrations/google-calendar
+```
+
+Google認証済みセッションが必要。Calendar FreeBusy権限とカレンダー一覧の読み取り権限を求める認可URLを返す。
+
+```json
+{
+  "data": {
+    "authorization_url": "https://accounts.google.com/o/oauth2/auth?..."
   }
 }
 ```
 
-候補は初期段階ではDBへ保存せず、`availability_intervals`から都度計算する。未回答者は参加不可として人数に含めないが、`total_participant_count`には含める。
-
-### 8.7 日程確定
+### 10.4 Googleカレンダーコールバック
 
 ```http
-PUT /api/v1/events/{event_id}/confirmation
+GET /api/v1/integrations/google-calendar/callback?code=<code>&state=<state>
 ```
 
-Request：
+開始時と同じ登録ユーザーのセッションとstate Cookieが必要。取得したRefresh TokenはAES-GCMで暗号化してDBへ保存する。
+
+成功時は次へ`303`でリダイレクトする。
+
+```text
+{PUBLIC_APP_URL}?google_calendar=connected
+```
+
+### 10.5 Googleカレンダー一覧
+
+```http
+GET /api/v1/integrations/google-calendar/calendars
+```
+
+空き時間の判定対象として選択できるカレンダーを返す。予定のタイトルや内容は返さない。
 
 ```json
 {
-  "start_at": "2026-09-10T01:00:00Z",
-  "end_at": "2026-09-10T02:00:00Z"
+  "data": {
+    "calendars": [
+      {
+        "id": "user@example.com",
+        "summary": "メインカレンダー",
+        "primary": true,
+        "selected": true,
+        "background_color": "#4285f4"
+      }
+    ]
+  }
 }
 ```
 
-入力日時はイベント期間内で、`end_at - start_at`が`duration_minutes`と一致しなければならない。候補一覧にない日時でも、主催者がイベント期間内で選択した場合は確定可能とする。
-
-成功時はイベントを`confirmed`へ変更して`200 OK`を返す。同時更新を防ぐため、更新前にイベント行をロックする。
-
-### 8.8 イベント取消
+### 10.6 Googleカレンダー連携解除
 
 ```http
-DELETE /api/v1/events/{event_id}
+DELETE /api/v1/integrations/google-calendar
 ```
 
-物理削除せず`status = cancelled`へ変更し、`204 No Content`を返す。同じリクエストを再度実行しても`204`とする。取消済みイベントへの回答・確定・参加は拒否する。
+Google側でRefresh Tokenを失効させた後、DBの暗号文を削除する。成功時は`204`。未連携の場合は`409 calendar_not_connected`。
 
-## 9. イベント状態遷移
+### 10.7 空き時間プレビュー
+
+```http
+POST /api/v1/events/{event_id}/google-calendar-availability/preview
+```
+
+```json
+{"calendar_ids":["primary"]}
+```
+
+- `calendar_ids`: 省略または空配列なら`["primary"]`
+- 最大50件
+- 空文字列は不可
+- 対象イベントへの参加とCalendar連携が必要
+
+イベント期間をGoogle Calendar FreeBusy APIへ問い合わせ、予定あり区間を除いた時間を返す。予定のタイトル・説明・参加者は取得・返却しない。このAPIはプレビュー専用でDBへ保存しない。
+
+```json
+{
+  "data": {
+    "intervals": [
+      {
+        "start_at": "2026-09-10T01:00:00Z",
+        "end_at": "2026-09-10T02:00:00Z",
+        "source": "google_calendar"
+      }
+    ]
+  }
+}
+```
+
+## 11. イベント状態遷移
 
 ```mermaid
 stateDiagram-v2
-    [*] --> open: イベント作成
+    [*] --> open: 作成
     open --> confirmed: 日程確定
     confirmed --> open: 確定解除
     open --> cancelled: 取消
     confirmed --> cancelled: 取消
-    cancelled --> [*]
 ```
 
-| 現在 | 操作 | 次の状態 | 許可 |
-|---|---|---|---|
-| `open` | 回答・参加・内容変更 | `open` | 可 |
-| `open` | 確定 | `confirmed` | 主催者のみ |
-| `open` | 取消 | `cancelled` | 主催者のみ |
-| `confirmed` | 確定解除 | `open` | 主催者のみ |
-| `confirmed` | 取消 | `cancelled` | 主催者のみ |
-| `confirmed` | 回答・参加 | - | 不可 |
-| `cancelled` | 任意の変更 | - | 不可 |
+| 現在 | 操作 | 結果 |
+|---|---|---|
+| `open` | 参加・回答・内容更新 | 許可 |
+| `open` | 確定 | `confirmed` |
+| `open` | 取消 | `cancelled` |
+| `confirmed` | 確定解除 | `open` |
+| `confirmed` | 取消 | `cancelled` |
+| `confirmed` | 参加・回答・内容更新 | 拒否 |
+| `cancelled` | 再度取消 | `cancelled`のまま成功 |
+| `cancelled` | その他の変更 | 拒否 |
 
-DB制約上、`confirmed`以外の状態では`confirmed_start_at`と`confirmed_end_at`をNULLにする。確定解除・取消と同じUPDATE内で両カラムをNULLへ戻す。
+## 12. 現在の制約と本番運用上の注意
 
-## 10. 権限
-
-| 操作 | 未認証 | 招待URL保有者 | 一般参加者 | 主催者 |
-|---|---:|---:|---:|---:|
-| 公開招待情報の取得 | 可 | 可 | 可 | 可 |
-| イベント参加 | 不可 | 認証後可 | - | - |
-| イベント詳細の取得 | 不可 | 不可 | 可 | 可 |
-| 参加者・回答の取得 | 不可 | 不可 | 可 | 可 |
-| 自分の回答更新 | 不可 | 不可 | 可 | 可 |
-| イベント内容変更 | 不可 | 不可 | 不可 | 可 |
-| 招待トークン再発行 | 不可 | 不可 | 不可 | 可 |
-| 日程確定・取消 | 不可 | 不可 | 不可 | 可 |
-
-イベントIDを知っているだけではアクセスを許可しない。参加者向けAPIでは、現在のユーザーが対象イベントの`participants`に存在するか確認する。
-
-## 11. 一覧とページネーション
-
-イベント一覧はカーソル方式を使用する。
-
-```http
-GET /api/v1/events?status=open&limit=20&cursor=<opaque-cursor>
-```
-
-- `limit`: デフォルト20、最大100
-- `cursor`: サーバーが生成した不透明な文字列
-- 並び順：`created_at DESC, id DESC`
-- クライアントはカーソルの内容を解釈・生成しない
-
-参加者と参加可能時間は、MVPではイベント単位の件数上限を設け、ページネーションなしで返す。上限を超える利用要件が生じた場合にカーソル方式を追加する。
-
-## 12. 入力検証
-
-- リクエストボディの上限を1 MiBとする。
-- 未知のJSONフィールドは`400 invalid_json`として拒否する。
-- JSONオブジェクトの後に別のJSON値が続く入力を拒否する。
-- 文字列は前後の空白を除去してから長さを検証する。
-- UUID、RFC 3339日時、IANAタイムゾーンを厳密に検証する。
-- 参加可能時間はイベント期間内に限定する。
-- DB制約違反は内部エラーにせず、判別可能なものを`409`または`422`へ変換する。
-
-## 13. セキュリティ・運用
-
-- 招待トークン、Cookie、Authorization Code、OAuth Tokenをログへ出さない。
-- 招待トークンを含むURLのアクセスログはマスクする。
-- Google OAuthのリダイレクト先は許可リストで検証する。
-- エラーにはリクエストIDを付け、同じIDを構造化ログへ記録する。
-- APIサーバーではRead Header、Request Body、Idle、Shutdownのタイムアウトを設定する。
-- 状態変更APIにはユーザー単位とIP単位のレート制限を適用する。
-- DBクエリにはリクエストの`context.Context`を伝播する。
-- `GET /health`はDBへアクセスせず、`GET /ready`だけがDB接続を確認する。
-
-## 14. 実装単位
-
-APIは次の順番で実装する。
-
-1. 共通JSONレスポンスとエラー処理
-2. リクエストID・アクセスログ・パニック復旧ミドルウェア
-3. ゲストセッション作成と認証ミドルウェア
-4. イベント作成と主催者参加情報の同時登録
-5. 招待情報取得とイベント参加
-6. 参加可能時間の一括更新
-7. 参加者別回答と候補日時の取得
-8. 日程確定・確定解除・取消
-9. Google認証とカレンダー連携
-
-各機能はHandler、Service、Repositoryに分離し、Service層のテストではRepositoryをインターフェースで差し替える。RepositoryのSQLは`sqlc`で型安全なGoコードへ生成する。
-
-## 15. 未確定事項
-
-- ゲストセッションの具体的な有効期間
-- イベントおよび参加者数の上限
-- 参加者同士に個別の参加可能時間を公開するか、集計結果だけ公開するか
-- イベント確定・取消時のメール通知方法
-- 回答期限後に主催者が回答を再開できるか
-- Googleカレンダーから空き時間を計算するときの営業時間・休日設定
-- OpenAPI定義からサーバー型を生成するか、実装後にOpenAPIを生成するか
+- フロントエンドとAPIは同一サイト配下での利用を前提とする。
+- CORSミドルウェア、Origin検証、CSRFトークンは現時点では未実装。
+- APIレート制限は未実装。
+- サーバー側セッションテーブルはなく、Cookieの個別即時失効や端末別管理は行わない。
+- イベントIDなどのUUID形式をHandler層で事前検証していないため、不正形式へのエラー整形は今後の改善対象。
+- 未定義パスの`404`と許可されていないHTTPメソッドの`405`は、現時点ではGo標準Muxのプレーンテキスト応答となる。
+- Google OAuthの実環境動作にはGoogle Cloud ConsoleのOAuthクライアントと許可済みリダイレクトURIが必要。
+- `SESSION_KEY`と`TOKEN_ENCRYPTION_KEY`は別々の32バイト鍵をBase64化し、Secret Manager等から供給する。

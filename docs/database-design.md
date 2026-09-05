@@ -343,7 +343,7 @@ db/migrations/
 └── 000004_create_availability_intervals.down.sql
 ```
 
-Google連携用テーブルは、MVPの基本的な日程調整が動作した後に別マイグレーションとして追加する。
+Google連携用テーブルは、`000005_create_google_integrations`で追加する。
 
 ## 11. 未確定事項
 
