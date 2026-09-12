@@ -10,7 +10,8 @@ vacaro-backは、参加者があらかじめ用意された候補枠へ回答す
 - 日程調整イベントの作成と共有
 - イベントへの参加
 - 参加可能時間帯の登録
-- 調整結果の確定
+- イベント全体または小グループ単位の調整結果の確定
+- 小グループの作成と参加者編成
 - GoogleアカウントおよびGoogleカレンダー連携
 
 ## 2. 前提と設計方針
@@ -35,6 +36,9 @@ erDiagram
     USERS ||--o{ PARTICIPANTS : joins
     EVENTS ||--o{ PARTICIPANTS : contains
     PARTICIPANTS ||--o{ AVAILABILITY_INTERVALS : submits
+    EVENTS ||--o{ SCHEDULING_GROUPS : divides
+    SCHEDULING_GROUPS ||--o{ SCHEDULING_GROUP_MEMBERS : has
+    PARTICIPANTS ||--o{ SCHEDULING_GROUP_MEMBERS : belongs_to
 
     USERS {
         uuid id PK
@@ -76,6 +80,7 @@ erDiagram
         timestamptz window_start_at
         timestamptz window_end_at
         integer duration_minutes
+        varchar scheduling_mode
         varchar status
         timestamptz confirmed_start_at
         timestamptz confirmed_end_at
@@ -93,6 +98,23 @@ erDiagram
         varchar response_status
         timestamptz created_at
         timestamptz updated_at
+    }
+
+    SCHEDULING_GROUPS {
+        uuid id PK
+        uuid event_id FK
+        varchar name
+        integer duration_minutes
+        timestamptz confirmed_start_at
+        timestamptz confirmed_end_at
+        timestamptz created_at
+        timestamptz updated_at
+    }
+
+    SCHEDULING_GROUP_MEMBERS {
+        uuid group_id PK,FK
+        uuid participant_id PK,FK
+        timestamptz created_at
     }
 
     AVAILABILITY_INTERVALS {
@@ -185,6 +207,7 @@ Googleカレンダーへのアクセス許可を保持する。Googleログイ�
 | `window_start_at` | `TIMESTAMPTZ` | NO | - | 回答可能期間の開始 |
 | `window_end_at` | `TIMESTAMPTZ` | NO | - | 回答可能期間の終了 |
 | `duration_minutes` | `INTEGER` | NO | - | 必要な予定時間 |
+| `scheduling_mode` | `VARCHAR(20)` | NO | `'whole_event'` | `whole_event`または`groups` |
 | `status` | `VARCHAR(20)` | NO | `'open'` | `open`、`confirmed`、`cancelled` |
 | `confirmed_start_at` | `TIMESTAMPTZ` | YES | - | 確定した開始日時 |
 | `confirmed_end_at` | `TIMESTAMPTZ` | YES | - | 確定した終了日時 |
@@ -199,7 +222,9 @@ Googleカレンダーへのアクセス許可を保持する。Googleログイ�
 - 一意制約：`invite_token_hash`
 - `window_start_at < window_end_at`
 - `duration_minutes > 0`
+- `scheduling_mode IN ('whole_event', 'groups')`
 - 確定日時は両方NULL、または両方非NULLかつ`confirmed_start_at < confirmed_end_at`とする。
+- `scheduling_mode = groups`の場合、イベント本体の確定日時は両方NULLとする。このテーブル単独では表現しにくいためService層でも検証する。
 - インデックス：`(created_by_user_id, created_at DESC)`
 - インデックス：`(status, response_deadline_at)`
 
@@ -229,7 +254,49 @@ Googleカレンダーへのアクセス許可を保持する。Googleログイ�
 - インデックス：`user_id`
 - イベント作成者については、`role = 'organizer'`の参加者レコードも同一トランザクション内で作成する。
 
-### 4.6 `availability_intervals`
+### 4.6 `scheduling_groups`
+
+小グループごとの調整条件と確定日時を表す。参加可能時間の回答は複製せず、所属参加者の`availability_intervals`を参照して候補を計算する。
+
+| カラム | 型 | NULL | デフォルト | 説明 |
+|---|---|---:|---|---|
+| `id` | `UUID` | NO | `gen_random_uuid()` | グループID |
+| `event_id` | `UUID` | NO | - | `events.id` |
+| `name` | `VARCHAR(100)` | NO | - | イベント内のグループ名 |
+| `duration_minutes` | `INTEGER` | NO | - | グループの日程確定に必要な時間 |
+| `confirmed_start_at` | `TIMESTAMPTZ` | YES | - | 確定した開始日時 |
+| `confirmed_end_at` | `TIMESTAMPTZ` | YES | - | 確定した終了日時 |
+| `created_at` | `TIMESTAMPTZ` | NO | `CURRENT_TIMESTAMP` | 作成日時 |
+| `updated_at` | `TIMESTAMPTZ` | NO | `CURRENT_TIMESTAMP` | 更新日時 |
+
+制約・インデックス：
+
+- 主キー：`id`
+- 外部キー：`event_id -> events.id ON DELETE CASCADE`
+- 一意制約：`(event_id, name)`
+- `duration_minutes > 0`
+- 確定日時は両方NULL、または両方非NULLかつ`confirmed_start_at < confirmed_end_at`とする。
+- インデックス：`(event_id, created_at)`
+
+### 4.7 `scheduling_group_members`
+
+小グループとイベント参加者の多対多関係を表す。同じ参加者が複数グループへ所属すること、およびどのグループにも所属しないことを許容する。
+
+| カラム | 型 | NULL | デフォルト | 説明 |
+|---|---|---:|---|---|
+| `group_id` | `UUID` | NO | - | `scheduling_groups.id` |
+| `participant_id` | `UUID` | NO | - | `participants.id` |
+| `created_at` | `TIMESTAMPTZ` | NO | `CURRENT_TIMESTAMP` | 所属作成日時 |
+
+制約・インデックス：
+
+- 複合主キー：`(group_id, participant_id)`
+- 外部キー：`group_id -> scheduling_groups.id ON DELETE CASCADE`
+- 外部キー：`participant_id -> participants.id ON DELETE CASCADE`
+- インデックス：`participant_id`
+- グループと参加者が同じイベントに属することはService層で検証する。
+
+### 4.8 `availability_intervals`
 
 参加者が入力した参加可能時間帯を表す。1人の参加者が複数の時間帯を登録できる。
 
@@ -271,10 +338,13 @@ EXCLUDE USING gist (
 DB制約だけでは他テーブルの値を参照する一部のルールを表現しにくいため、次はService層で同一トランザクション内に検証する。
 
 1. 参加可能時間はイベントの`window_start_at`以上、`window_end_at`以下であること。
-2. `confirmed`へ変更するときは確定日時を設定し、必要時間と一致させること。
+2. `whole_event`の確定日時はイベントの`duration_minutes`、グループの確定日時はグループの`duration_minutes`と一致させること。
 3. イベント作成者と`organizer`参加者の`user_id`が一致すること。
 4. `cancelled`または`confirmed`のイベントには新しい回答を登録できないこと。
 5. Googleカレンダー由来の時間帯は、連携を解除した後も残すか削除するかをユーザー操作として明示すること。
+6. `scheduling_groups`と所属する`participants`は同じイベントに属すること。
+7. `groups`モードではグループ0件の準備中状態を許容する。グループが1件以上あり、全グループが確定したときだけイベントを`confirmed`にし、一部だけ確定した状態では`open`のままとする。
+8. 確定済みグループの必要時間・メンバー編成・削除は許可しないこと。
 
 ## 6. トランザクション境界
 
@@ -284,7 +354,9 @@ DB制約だけでは他テーブルの値を参照する一部のルールを表
 - ゲスト参加：`users`作成と`participants`作成
 - ゲストからGoogleユーザーへの昇格：`users`更新と`auth_accounts`作成
 - 回答更新：既存の`availability_intervals`更新と`response_status`更新
-- 日程確定：`events`の確定日時とステータス更新
+- 全体日程確定：`events`の確定日時とステータス更新
+- グループ作成・メンバー一括置換：`scheduling_groups`と`scheduling_group_members`の更新
+- グループ日程確定・解除：`scheduling_groups`の確定日時と`events.status`の更新
 
 回答更新では、対象参加者のレコードまたはイベントを`SELECT ... FOR UPDATE`でロックし、同時更新による回答消失を防ぐ。
 
@@ -315,6 +387,11 @@ Cookieには`HttpOnly`、`Secure`、`SameSite`属性を設定する。サーバ�
 3. `participants`
 4. `availability_intervals`
 
+### 小グループ調整で追加するテーブル
+
+1. `scheduling_groups`
+2. `scheduling_group_members`
+
 ### Google連携実装時に追加するテーブル
 
 1. `auth_accounts`
@@ -340,10 +417,18 @@ db/migrations/
 ├── 000003_create_participants.up.sql
 ├── 000003_create_participants.down.sql
 ├── 000004_create_availability_intervals.up.sql
-└── 000004_create_availability_intervals.down.sql
+├── 000004_create_availability_intervals.down.sql
+├── 000006_add_scheduling_mode_to_events.up.sql
+├── 000006_add_scheduling_mode_to_events.down.sql
+├── 000007_create_scheduling_groups.up.sql
+├── 000007_create_scheduling_groups.down.sql
+├── 000008_create_scheduling_group_members.up.sql
+└── 000008_create_scheduling_group_members.down.sql
 ```
 
 Google連携用テーブルは、`000005_create_google_integrations`で追加する。
+
+`000006_add_scheduling_mode_to_events`では既存イベントをすべて`whole_event`として移行する。既存の`duration_minutes`と確定日時はそのまま維持し、既存クライアントが`scheduling_mode`を送らないイベント作成も`whole_event`として扱う。
 
 ## 11. 未確定事項
 

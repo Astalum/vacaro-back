@@ -60,6 +60,15 @@ type Store interface {
 	ConfirmEvent(context.Context, string, string, time.Time, time.Time) (domain.Event, error)
 	ReopenEvent(context.Context, string, string) (domain.Event, error)
 	CancelEvent(context.Context, string, string) error
+	ListGroups(context.Context, string, string) ([]domain.SchedulingGroup, error)
+	GetGroup(context.Context, string, string, string) (domain.SchedulingGroup, error)
+	CreateGroup(context.Context, repository.CreateGroupParams) (domain.SchedulingGroup, error)
+	UpdateGroup(context.Context, repository.UpdateGroupParams) (domain.SchedulingGroup, error)
+	DeleteGroup(context.Context, string, string, string) error
+	ReplaceGroupMembers(context.Context, string, string, string, []string) (domain.SchedulingGroup, error)
+	ListGroupAvailability(context.Context, string, string, string) ([]domain.ParticipantAvailability, error)
+	ConfirmGroup(context.Context, string, string, string, time.Time, time.Time) (domain.SchedulingGroup, error)
+	ReopenGroup(context.Context, string, string, string) (domain.SchedulingGroup, error)
 	UpsertGoogleUser(context.Context, string, string, string, string) (domain.User, error)
 	SaveGoogleCalendarConnection(context.Context, string, []byte, []string) error
 	GetGoogleCalendarConnection(context.Context, string) ([]byte, []string, error)
@@ -110,6 +119,7 @@ type CreateEventInput struct {
 	WindowStartAt      time.Time
 	WindowEndAt        time.Time
 	DurationMinutes    int
+	SchedulingMode     string
 	ResponseDeadlineAt *time.Time
 }
 
@@ -135,7 +145,7 @@ func (s *Service) CreateEvent(ctx context.Context, userID string, input CreateEv
 	event, err := s.store.CreateEvent(ctx, repository.CreateEventParams{
 		CreatedByUserID: userID, InviteTokenHash: tokenHash, Title: input.Title,
 		Description: input.Description, TimeZone: input.TimeZone, WindowStartAt: input.WindowStartAt,
-		WindowEndAt: input.WindowEndAt, DurationMinutes: input.DurationMinutes,
+		WindowEndAt: input.WindowEndAt, DurationMinutes: input.DurationMinutes, SchedulingMode: input.SchedulingMode,
 		ResponseDeadlineAt: input.ResponseDeadlineAt, OrganizerName: user.DisplayName,
 	})
 	if err != nil {
@@ -214,6 +224,7 @@ type UpdateEventInput struct {
 	WindowStartAt      *time.Time
 	WindowEndAt        *time.Time
 	DurationMinutes    *int
+	SchedulingMode     *string
 	ResponseDeadlineAt *time.Time
 	DeadlineSet        bool
 }
@@ -233,6 +244,7 @@ func (s *Service) UpdateEvent(ctx context.Context, eventID, userID string, input
 		Title: current.Title, Description: current.Description, TimeZone: current.TimeZone,
 		WindowStartAt: current.WindowStartAt, WindowEndAt: current.WindowEndAt,
 		DurationMinutes: current.DurationMinutes, ResponseDeadlineAt: current.ResponseDeadlineAt,
+		SchedulingMode: current.SchedulingMode,
 	}
 	if input.Title != nil {
 		merged.Title = *input.Title
@@ -251,6 +263,9 @@ func (s *Service) UpdateEvent(ctx context.Context, eventID, userID string, input
 	}
 	if input.DurationMinutes != nil {
 		merged.DurationMinutes = *input.DurationMinutes
+	}
+	if input.SchedulingMode != nil {
+		merged.SchedulingMode = *input.SchedulingMode
 	}
 	if input.DeadlineSet {
 		merged.ResponseDeadlineAt = input.ResponseDeadlineAt
@@ -275,7 +290,8 @@ func (s *Service) UpdateEvent(ctx context.Context, eventID, userID string, input
 	return s.store.UpdateEvent(ctx, repository.UpdateEventParams{
 		EventID: eventID, UserID: userID, Title: merged.Title, Description: merged.Description,
 		TimeZone: merged.TimeZone, WindowStartAt: merged.WindowStartAt, WindowEndAt: merged.WindowEndAt,
-		DurationMinutes: merged.DurationMinutes, ResponseDeadlineAt: merged.ResponseDeadlineAt,
+		DurationMinutes: merged.DurationMinutes, SchedulingMode: merged.SchedulingMode,
+		ResponseDeadlineAt: merged.ResponseDeadlineAt,
 	})
 }
 
@@ -481,6 +497,10 @@ func (s *Service) ConfirmEvent(ctx context.Context, eventID, userID string, star
 }
 
 func (s *Service) ReopenEvent(ctx context.Context, eventID, userID string) (domain.Event, error) {
+	_, err := s.store.GetEventForUser(ctx, eventID, userID)
+	if err != nil {
+		return domain.Event{}, err
+	}
 	return s.store.ReopenEvent(ctx, eventID, userID)
 }
 
@@ -491,6 +511,10 @@ func (s *Service) CancelEvent(ctx context.Context, eventID, userID string) error
 func normalizeEvent(input CreateEventInput) CreateEventInput {
 	input.Title = strings.TrimSpace(input.Title)
 	input.TimeZone = strings.TrimSpace(input.TimeZone)
+	input.SchedulingMode = strings.TrimSpace(input.SchedulingMode)
+	if input.SchedulingMode == "" {
+		input.SchedulingMode = "whole_event"
+	}
 	if input.Description != nil {
 		value := strings.TrimSpace(*input.Description)
 		if value == "" {
@@ -524,6 +548,9 @@ func validateEvent(input CreateEventInput) error {
 	}
 	if input.DurationMinutes < 5 || input.DurationMinutes > 1440 {
 		fields["duration_minutes"] = "5～1440分で指定してください"
+	}
+	if input.SchedulingMode != "whole_event" && input.SchedulingMode != "groups" {
+		fields["scheduling_mode"] = "whole_event、groupsのいずれかを指定してください"
 	}
 	if input.WindowEndAt.Sub(input.WindowStartAt) < time.Duration(input.DurationMinutes)*time.Minute {
 		fields["duration_minutes"] = "イベント期間以下にしてください"

@@ -9,29 +9,38 @@ import (
 )
 
 type storeStub struct {
-	createGuest          func(context.Context, string, time.Time) (domain.User, error)
-	getUser              func(context.Context, string) (domain.User, error)
-	updateUserName       func(context.Context, string, string) (domain.User, error)
-	createEvent          func(context.Context, repository.CreateEventParams) (domain.Event, error)
-	listEvents           func(context.Context, string, string, *time.Time, *string, int) ([]domain.Event, error)
-	getEventForUser      func(context.Context, string, string) (domain.Event, error)
-	getEventByInvite     func(context.Context, string) (domain.Event, error)
-	updateEvent          func(context.Context, repository.UpdateEventParams) (domain.Event, error)
-	rotateInviteToken    func(context.Context, string, string, string) error
-	joinEvent            func(context.Context, string, string, string) (domain.Participant, error)
-	listParticipants     func(context.Context, string, string) ([]domain.Participant, error)
-	leaveEvent           func(context.Context, string, string) error
-	replaceAvailability  func(context.Context, string, string, []domain.AvailabilityInterval) ([]domain.AvailabilityInterval, error)
-	getOwnAvailability   func(context.Context, string, string) ([]domain.AvailabilityInterval, string, error)
-	listAvailability     func(context.Context, string, string) ([]domain.ParticipantAvailability, error)
-	confirmEvent         func(context.Context, string, string, time.Time, time.Time) (domain.Event, error)
-	reopenEvent          func(context.Context, string, string) (domain.Event, error)
-	cancelEvent          func(context.Context, string, string) error
-	upsertGoogleUser     func(context.Context, string, string, string, string) (domain.User, error)
-	saveGoogleCalendar   func(context.Context, string, []byte, []string) error
-	getGoogleCalendar    func(context.Context, string) ([]byte, []string, error)
-	deleteGoogleCalendar func(context.Context, string) ([]byte, error)
-	hasGoogleAccount     func(context.Context, string) (bool, error)
+	createGuest           func(context.Context, string, time.Time) (domain.User, error)
+	getUser               func(context.Context, string) (domain.User, error)
+	updateUserName        func(context.Context, string, string) (domain.User, error)
+	createEvent           func(context.Context, repository.CreateEventParams) (domain.Event, error)
+	listEvents            func(context.Context, string, string, *time.Time, *string, int) ([]domain.Event, error)
+	getEventForUser       func(context.Context, string, string) (domain.Event, error)
+	getEventByInvite      func(context.Context, string) (domain.Event, error)
+	updateEvent           func(context.Context, repository.UpdateEventParams) (domain.Event, error)
+	rotateInviteToken     func(context.Context, string, string, string) error
+	joinEvent             func(context.Context, string, string, string) (domain.Participant, error)
+	listParticipants      func(context.Context, string, string) ([]domain.Participant, error)
+	leaveEvent            func(context.Context, string, string) error
+	replaceAvailability   func(context.Context, string, string, []domain.AvailabilityInterval) ([]domain.AvailabilityInterval, error)
+	getOwnAvailability    func(context.Context, string, string) ([]domain.AvailabilityInterval, string, error)
+	listAvailability      func(context.Context, string, string) ([]domain.ParticipantAvailability, error)
+	confirmEvent          func(context.Context, string, string, time.Time, time.Time) (domain.Event, error)
+	reopenEvent           func(context.Context, string, string) (domain.Event, error)
+	cancelEvent           func(context.Context, string, string) error
+	upsertGoogleUser      func(context.Context, string, string, string, string) (domain.User, error)
+	saveGoogleCalendar    func(context.Context, string, []byte, []string) error
+	getGoogleCalendar     func(context.Context, string) ([]byte, []string, error)
+	deleteGoogleCalendar  func(context.Context, string) ([]byte, error)
+	hasGoogleAccount      func(context.Context, string) (bool, error)
+	listGroups            func(context.Context, string, string) ([]domain.SchedulingGroup, error)
+	getGroup              func(context.Context, string, string, string) (domain.SchedulingGroup, error)
+	createGroup           func(context.Context, repository.CreateGroupParams) (domain.SchedulingGroup, error)
+	updateGroup           func(context.Context, repository.UpdateGroupParams) (domain.SchedulingGroup, error)
+	deleteGroup           func(context.Context, string, string, string) error
+	replaceGroupMembers   func(context.Context, string, string, string, []string) (domain.SchedulingGroup, error)
+	listGroupAvailability func(context.Context, string, string, string) ([]domain.ParticipantAvailability, error)
+	confirmGroup          func(context.Context, string, string, string, time.Time, time.Time) (domain.SchedulingGroup, error)
+	reopenGroup           func(context.Context, string, string, string) (domain.SchedulingGroup, error)
 }
 
 func (s storeStub) CreateGuest(ctx context.Context, name string, expires time.Time) (domain.User, error) {
@@ -102,4 +111,31 @@ func (s storeStub) DeleteGoogleCalendarConnection(ctx context.Context, userID st
 }
 func (s storeStub) HasGoogleAccount(ctx context.Context, userID string) (bool, error) {
 	return s.hasGoogleAccount(ctx, userID)
+}
+func (s storeStub) ListGroups(ctx context.Context, eventID, userID string) ([]domain.SchedulingGroup, error) {
+	return s.listGroups(ctx, eventID, userID)
+}
+func (s storeStub) GetGroup(ctx context.Context, eventID, groupID, userID string) (domain.SchedulingGroup, error) {
+	return s.getGroup(ctx, eventID, groupID, userID)
+}
+func (s storeStub) CreateGroup(ctx context.Context, params repository.CreateGroupParams) (domain.SchedulingGroup, error) {
+	return s.createGroup(ctx, params)
+}
+func (s storeStub) UpdateGroup(ctx context.Context, params repository.UpdateGroupParams) (domain.SchedulingGroup, error) {
+	return s.updateGroup(ctx, params)
+}
+func (s storeStub) DeleteGroup(ctx context.Context, eventID, groupID, userID string) error {
+	return s.deleteGroup(ctx, eventID, groupID, userID)
+}
+func (s storeStub) ReplaceGroupMembers(ctx context.Context, eventID, groupID, userID string, participantIDs []string) (domain.SchedulingGroup, error) {
+	return s.replaceGroupMembers(ctx, eventID, groupID, userID, participantIDs)
+}
+func (s storeStub) ListGroupAvailability(ctx context.Context, eventID, groupID, userID string) ([]domain.ParticipantAvailability, error) {
+	return s.listGroupAvailability(ctx, eventID, groupID, userID)
+}
+func (s storeStub) ConfirmGroup(ctx context.Context, eventID, groupID, userID string, startAt, endAt time.Time) (domain.SchedulingGroup, error) {
+	return s.confirmGroup(ctx, eventID, groupID, userID, startAt, endAt)
+}
+func (s storeStub) ReopenGroup(ctx context.Context, eventID, groupID, userID string) (domain.SchedulingGroup, error) {
+	return s.reopenGroup(ctx, eventID, groupID, userID)
 }

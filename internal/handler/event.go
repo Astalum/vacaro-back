@@ -15,6 +15,7 @@ type eventRequest struct {
 	WindowStartAt      time.Time  `json:"window_start_at"`
 	WindowEndAt        time.Time  `json:"window_end_at"`
 	DurationMinutes    int        `json:"duration_minutes"`
+	SchedulingMode     string     `json:"scheduling_mode"`
 	ResponseDeadlineAt *time.Time `json:"response_deadline_at"`
 }
 
@@ -27,7 +28,8 @@ func (a *API) createEvent(w http.ResponseWriter, r *http.Request) {
 	result, err := a.service.CreateEvent(r.Context(), currentUserID(r), service.CreateEventInput{
 		Title: request.Title, Description: request.Description, TimeZone: request.TimeZone,
 		WindowStartAt: request.WindowStartAt, WindowEndAt: request.WindowEndAt,
-		DurationMinutes: request.DurationMinutes, ResponseDeadlineAt: request.ResponseDeadlineAt,
+		DurationMinutes: request.DurationMinutes, SchedulingMode: request.SchedulingMode,
+		ResponseDeadlineAt: request.ResponseDeadlineAt,
 	})
 	if err != nil {
 		writeAPIError(w, r, err)
@@ -73,6 +75,7 @@ func (a *API) updateEvent(w http.ResponseWriter, r *http.Request) {
 		WindowStartAt      *time.Time          `json:"window_start_at"`
 		WindowEndAt        *time.Time          `json:"window_end_at"`
 		DurationMinutes    *int                `json:"duration_minutes"`
+		SchedulingMode     *string             `json:"scheduling_mode"`
 		ResponseDeadlineAt optional[time.Time] `json:"response_deadline_at"`
 	}
 	if err := decodeJSON(w, r, &request); err != nil {
@@ -90,8 +93,9 @@ func (a *API) updateEvent(w http.ResponseWriter, r *http.Request) {
 	event, err := a.service.UpdateEvent(r.Context(), r.PathValue("event_id"), currentUserID(r), service.UpdateEventInput{
 		Title: request.Title, Description: description, DescriptionSet: request.Description.Set,
 		TimeZone: request.TimeZone, WindowStartAt: request.WindowStartAt, WindowEndAt: request.WindowEndAt,
-		DurationMinutes: request.DurationMinutes, ResponseDeadlineAt: deadline,
-		DeadlineSet: request.ResponseDeadlineAt.Set,
+		DurationMinutes: request.DurationMinutes, SchedulingMode: request.SchedulingMode,
+		ResponseDeadlineAt: deadline,
+		DeadlineSet:        request.ResponseDeadlineAt.Set,
 	})
 	if err != nil {
 		writeAPIError(w, r, err)

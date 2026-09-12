@@ -7,11 +7,11 @@
 | 対象API | vacaro-back HTTP API |
 | APIバージョン | v1 |
 | ベースパス | `/api/v1` |
-| 仕様更新日 | 2026-09-04 |
+| 仕様更新日 | 2026-09-12 |
 | 実装 | Go `net/http` |
 | 認証 | 暗号化されたHttpOnly Cookie |
 
-本書は現在のサーバー実装を基準としたAPI契約である。DB構造については[データベース設計書](database-design.md)を参照する。
+本書は現在の小グループ調整対応APIを基準とした契約である。DB構造については[データベース設計書](database-design.md)を参照する。
 
 ## 2. 共通仕様
 
@@ -113,6 +113,8 @@ Cookie属性：
 | `409` | `event_not_open` | 受付中でないイベントへの更新 |
 | `409` | `organizer_cannot_leave` | 主催者によるイベント退出 |
 | `409` | `invalid_event_transition` | 許可されていない状態遷移 |
+| `409` | `group_not_editable` | 確定済みイベントなど、グループ編成を変更できない状態 |
+| `409` | `group_confirmation_exists` | 確定済みグループがあり、モード変更やグループ変更ができない |
 | `409` | `calendar_not_connected` | Googleカレンダー未連携 |
 | `422` | `validation_failed` | 業務入力規則への違反 |
 | `500` | `internal_error` | 予期しない内部エラー |
@@ -152,6 +154,7 @@ Cookie属性：
   "window_start_at": "2026-09-10T00:00:00Z",
   "window_end_at": "2026-09-12T12:00:00Z",
   "duration_minutes": 60,
+  "scheduling_mode": "whole_event",
   "status": "open",
   "confirmed_start_at": null,
   "confirmed_end_at": null,
@@ -161,7 +164,7 @@ Cookie属性：
 }
 ```
 
-`status`は`open`、`confirmed`、`cancelled`のいずれか。公開招待APIでは`created_by_user_id`を返さない。
+`status`は`open`、`confirmed`、`cancelled`のいずれか。`scheduling_mode`はイベント全体を1件として調整する`whole_event`、または小グループごとに調整する`groups`のいずれか。公開招待APIでは`created_by_user_id`を返さない。
 
 ### 3.3 Participant
 
@@ -180,7 +183,30 @@ Cookie属性：
 
 `role`は`organizer`または`member`、`response_status`は`pending`または`submitted`。
 
-### 3.4 AvailabilityInterval
+### 3.4 SchedulingGroup
+
+```json
+{
+  "id": "0198d548-41c7-7ba0-b63e-71c9adff52ef",
+  "event_id": "0198d543-e7f0-7df2-95fa-cee649624cef",
+  "name": "デザインチーム",
+  "duration_minutes": 45,
+  "confirmed_start_at": null,
+  "confirmed_end_at": null,
+  "member_count": 0,
+  "members": [],
+  "created_at": "2026-09-04T03:30:00Z",
+  "updated_at": "2026-09-04T03:30:00Z"
+}
+```
+
+- `name`: イベント内で一意な1～100文字の名称
+- `duration_minutes`: グループの日程確定に必要な時間。5～1,440分かつイベント期間以下
+- 確定日時は両方`null`、または両方非`null`
+- グループ一覧・詳細では`members`としてParticipant配列を必ず含める
+- 参加者は同じイベント内の複数グループへ所属でき、未所属も許容する
+
+### 3.5 AvailabilityInterval
 
 ```json
 {
@@ -214,6 +240,16 @@ Cookie属性：
 | `POST` | `/api/v1/events/{event_id}/invite-token` | 主催者 | `200` |
 | `PUT` | `/api/v1/events/{event_id}/confirmation` | 主催者 | `200` |
 | `DELETE` | `/api/v1/events/{event_id}/confirmation` | 主催者 | `200` |
+| `GET` | `/api/v1/events/{event_id}/groups` | 参加者 | `200` |
+| `POST` | `/api/v1/events/{event_id}/groups` | 主催者 | `201` |
+| `GET` | `/api/v1/events/{event_id}/groups/{group_id}` | 参加者 | `200` |
+| `PATCH` | `/api/v1/events/{event_id}/groups/{group_id}` | 主催者 | `200` |
+| `DELETE` | `/api/v1/events/{event_id}/groups/{group_id}` | 主催者 | `204` |
+| `PUT` | `/api/v1/events/{event_id}/groups/{group_id}/members` | 主催者 | `200` |
+| `GET` | `/api/v1/events/{event_id}/groups/{group_id}/availability` | 参加者 | `200` |
+| `GET` | `/api/v1/events/{event_id}/groups/{group_id}/candidates` | 参加者 | `200` |
+| `PUT` | `/api/v1/events/{event_id}/groups/{group_id}/confirmation` | 主催者 | `200` |
+| `DELETE` | `/api/v1/events/{event_id}/groups/{group_id}/confirmation` | 主催者 | `200` |
 | `GET` | `/api/v1/invitations/{invite_token}` | 不要 | `200` |
 | `POST` | `/api/v1/invitations/{invite_token}/participants` | 必要 | `201` |
 | `GET` | `/api/v1/events/{event_id}/participants` | 参加者 | `200` |
@@ -325,6 +361,7 @@ POST /api/v1/events
   "window_start_at": "2026-09-10T00:00:00Z",
   "window_end_at": "2026-09-12T12:00:00Z",
   "duration_minutes": 60,
+  "scheduling_mode": "whole_event",
   "response_deadline_at": "2026-09-09T12:00:00Z"
 }
 ```
@@ -337,6 +374,7 @@ POST /api/v1/events
 - `window_start_at`: 必須
 - `window_end_at`: 必須、`window_start_at`より後
 - `duration_minutes`: 5～1,440分かつイベント期間以下
+- `scheduling_mode`: `whole_event`または`groups`。省略時は`whole_event`
 - `response_deadline_at`: 任意、`window_end_at`以前
 
 作成者は同じトランザクションで主催者として参加する。Response: `201`。
@@ -399,11 +437,18 @@ PATCH /api/v1/events/{event_id}
   "window_start_at": "2026-09-10T00:00:00Z",
   "window_end_at": "2026-09-11T12:00:00Z",
   "duration_minutes": 90,
+  "scheduling_mode": "groups",
   "response_deadline_at": null
 }
 ```
 
 `description`と`response_deadline_at`へ`null`を送ると値を削除する。変更後の期間が登録済み参加可能時間を除外する場合は`422`。Response: `200`、更新後のEvent。
+
+`scheduling_mode`の変更は次の場合だけ許可する。
+
+- イベントが`open`
+- イベント全体またはグループに確定日時が存在しない
+- `groups`から`whole_event`へ戻す場合、グループが1件も存在しない
 
 ### 7.5 イベント取消
 
@@ -437,6 +482,7 @@ PUT /api/v1/events/{event_id}/confirmation
 - イベント期間内であること
 - `end_at - start_at`が`duration_minutes`と一致すること
 - 主催者のみ実行可能
+- `whole_event`と`groups`のどちらでも確定可能。`groups`では全体候補の確定日時として保存する
 
 Response: `200`、`status=confirmed`のEvent。
 
@@ -448,9 +494,138 @@ DELETE /api/v1/events/{event_id}/confirmation
 
 `confirmed`から`open`へ戻し、確定日時を`null`にする。Response: `200`、更新後のEvent。
 
-## 8. 招待・参加者
+`whole_event`と`groups`のどちらでも利用できる。小グループ個別の確定解除はグループ用エンドポイントを使用する。
 
-### 8.1 公開招待情報
+## 8. 小グループ
+
+小グループAPIは`Event.scheduling_mode = groups`の場合だけ利用できる。グループ編成の変更は主催者に限定し、イベントが`open`の間だけ許可する。回答はイベント単位で保持し、参加者へグループごとの再回答を要求しない。
+
+### 8.1 グループ一覧
+
+```http
+GET /api/v1/events/{event_id}/groups
+```
+
+作成日時順のSchedulingGroup配列を返す。各要素は`members`として所属するParticipant配列を含む。イベント参加者が閲覧できる。
+
+### 8.2 グループ作成
+
+```http
+POST /api/v1/events/{event_id}/groups
+```
+
+```json
+{
+  "name": "デザインチーム",
+  "duration_minutes": 45,
+  "participant_ids": [
+    "0198d545-6200-7973-8609-ab29d9ab461a"
+  ]
+}
+```
+
+- `name`: 必須、前後空白を除いて1～100文字、イベント内で一意
+- `duration_minutes`: 省略時はイベントの`duration_minutes`を使用
+- `participant_ids`: 省略時は空配列。対象イベントの参加者IDだけを指定可能
+- 重複した参加者IDは`422`
+
+グループとメンバーを同一トランザクションで作成する。Response: `201`、`data`は`members`を含むSchedulingGroup。
+
+### 8.3 グループ詳細
+
+```http
+GET /api/v1/events/{event_id}/groups/{group_id}
+```
+
+Response: `200`、`data`は`members`を含むSchedulingGroup。グループが対象イベントに属さない場合も`404`。
+
+### 8.4 グループ更新
+
+```http
+PATCH /api/v1/events/{event_id}/groups/{group_id}
+```
+
+```json
+{
+  "name": "プロダクトチーム",
+  "duration_minutes": 60
+}
+```
+
+両フィールドとも任意。確定済みグループの`duration_minutes`は変更できず`409 group_confirmation_exists`。Response: `200`、更新後のSchedulingGroup。
+
+### 8.5 グループ削除
+
+```http
+DELETE /api/v1/events/{event_id}/groups/{group_id}
+```
+
+メンバーとの関連を同時に削除する。確定済みグループは削除できず`409 group_confirmation_exists`。成功時は`204`。
+
+### 8.6 グループメンバー一括置換
+
+```http
+PUT /api/v1/events/{event_id}/groups/{group_id}/members
+```
+
+```json
+{
+  "participant_ids": [
+    "0198d545-6200-7973-8609-ab29d9ab461a",
+    "0198d546-135a-73c0-b064-2a8ef7652fc8"
+  ]
+}
+```
+
+対象グループのメンバーを指定された参加者で一括置換する。空配列を許容する。参加者は同じイベントに所属していなければならない。確定済みグループのメンバーは変更できない。Response: `200`、`data`は更新後の`members`を含むSchedulingGroup。
+
+### 8.7 グループ回答状況
+
+```http
+GET /api/v1/events/{event_id}/groups/{group_id}/availability
+```
+
+グループメンバーだけを対象に、10.4と同じParticipantAvailability配列を返す。メンバーが0人の場合は空配列。
+
+### 8.8 グループ共通候補日時
+
+```http
+GET /api/v1/events/{event_id}/groups/{group_id}/candidates?limit=20
+```
+
+10.5と同じCandidate配列を返す。ただし、計算対象はグループメンバー、必要時間はグループの`duration_minutes`とする。未回答のグループメンバーも`total_participant_count`に含める。フロント側では候補を再計算しない。
+
+### 8.9 グループ日程確定
+
+```http
+PUT /api/v1/events/{event_id}/groups/{group_id}/confirmation
+```
+
+```json
+{
+  "start_at": "2026-09-10T01:00:00Z",
+  "end_at": "2026-09-10T01:45:00Z"
+}
+```
+
+- イベント期間内であること
+- `end_at - start_at`がグループの`duration_minutes`と一致すること
+- グループに1人以上のメンバーが存在すること
+- 主催者のみ実行可能
+
+Response: `200`、`data`は更新後のSchedulingGroup。全グループに確定日時が設定された場合、同一トランザクションでイベントを`confirmed`へ変更する。
+
+### 8.10 グループ確定解除
+
+```http
+DELETE /api/v1/events/{event_id}/groups/{group_id}/confirmation
+```
+
+グループの確定日時を`null`へ戻す。イベントが`confirmed`の場合は同一トランザクションで`open`へ戻す。Response: `200`、`data`は更新後のSchedulingGroup。
+
+## 9. 招待・参加者
+
+### 9.1 公開招待情報
 
 ```http
 GET /api/v1/invitations/{invite_token}
@@ -458,7 +633,7 @@ GET /api/v1/invitations/{invite_token}
 
 Response: `200`、`created_by_user_id`を除いたEvent。無効なトークンまたは取消済みイベントは`404`。
 
-### 8.2 イベント参加
+### 9.2 イベント参加
 
 ```http
 POST /api/v1/invitations/{invite_token}/participants
@@ -473,7 +648,7 @@ POST /api/v1/invitations/{invite_token}/participants
 - 同じユーザーが参加済みの場合は`409 already_joined`
 - Response: `201`、`data`は作成されたParticipant
 
-### 8.3 参加者一覧
+### 9.3 参加者一覧
 
 ```http
 GET /api/v1/events/{event_id}/participants
@@ -481,7 +656,7 @@ GET /api/v1/events/{event_id}/participants
 
 Response: `200`、`data`はParticipant配列。主催者を先頭に、作成日時順で返す。
 
-### 8.4 イベント退出
+### 9.4 イベント退出
 
 ```http
 DELETE /api/v1/events/{event_id}/participants/me
@@ -489,9 +664,9 @@ DELETE /api/v1/events/{event_id}/participants/me
 
 一般参加者をイベントから削除し、回答も同時に削除する。主催者は退出できず`409 organizer_cannot_leave`。成功時は`204`。
 
-## 9. 参加可能時間・候補
+## 10. 参加可能時間・候補
 
-### 9.1 自分の回答取得
+### 10.1 自分の回答取得
 
 ```http
 GET /api/v1/events/{event_id}/my-availability
@@ -508,7 +683,7 @@ GET /api/v1/events/{event_id}/my-availability
 
 `intervals`は開始日時順のAvailabilityInterval配列。
 
-### 9.2 自分の回答を一括置換
+### 10.2 自分の回答を一括置換
 
 ```http
 PUT /api/v1/events/{event_id}/my-availability
@@ -544,7 +719,7 @@ Response: `200`。
 }
 ```
 
-### 9.3 別イベントから回答をコピー
+### 10.3 別イベントから回答をコピー
 
 ```http
 POST /api/v1/events/{target_event_id}/my-availability/copy
@@ -565,7 +740,7 @@ POST /api/v1/events/{target_event_id}/my-availability/copy
 
 時刻だけを別日へ移動する機能ではない。Response: `200`、一括置換と同じ形式。
 
-### 9.4 全参加者の回答取得
+### 10.4 全参加者の回答取得
 
 ```http
 GET /api/v1/events/{event_id}/availability
@@ -584,7 +759,7 @@ GET /api/v1/events/{event_id}/availability
 
 Response: `200`。参加者ごとにParticipantとAvailabilityInterval配列を返す。
 
-### 9.5 共通候補日時
+### 10.5 共通候補日時
 
 ```http
 GET /api/v1/events/{event_id}/candidates?limit=20
@@ -605,13 +780,13 @@ GET /api/v1/events/{event_id}/candidates?limit=20
 }
 ```
 
-イベントの`duration_minutes`を満たす開始候補を参加可能人数の降順、同数なら開始日時の昇順で返す。未回答者は`total_participant_count`には含むが参加可能人数には含めない。`limit`は標準20、最大100。
+イベント全参加者を対象に、イベントの`duration_minutes`を満たす開始候補を参加可能人数の降順、同数なら開始日時の昇順で返す。`groups`モードでもresults画面の「全体」表示で利用できる。未回答者は`total_participant_count`には含むが参加可能人数には含めない。`limit`は標準20、最大100。グループ別候補には8.8のエンドポイントを使用する。
 
-## 10. Google認証・Calendar連携
+## 11. Google認証・Calendar連携
 
 Google関連の環境変数がすべて未設定の場合、Google以外のAPIは通常どおり利用できる。Google OAuth・Calendar APIは`503 google_not_configured`を返す。
 
-### 10.1 Googleログイン開始
+### 11.1 Googleログイン開始
 
 ```http
 GET /api/v1/auth/google/start
@@ -619,7 +794,7 @@ GET /api/v1/auth/google/start
 
 暗号化した10分間有効のOAuth state Cookieを設定し、Google認可画面へ`303 See Other`でリダイレクトする。ゲストセッションがあれば、そのユーザーIDをstateへ関連付ける。
 
-### 10.2 Googleログインコールバック
+### 11.2 Googleログインコールバック
 
 ```http
 GET /api/v1/auth/google/callback?code=<code>&state=<state>
@@ -640,7 +815,7 @@ Googleの`sub`をアカウント識別子として使用し、メールアドレ
 {PUBLIC_APP_URL}?google_login=success
 ```
 
-### 10.3 Googleカレンダー連携開始
+### 11.3 Googleカレンダー連携開始
 
 ```http
 POST /api/v1/integrations/google-calendar
@@ -656,7 +831,7 @@ Google認証済みセッションが必要。Calendar FreeBusy権限とカレン
 }
 ```
 
-### 10.4 Googleカレンダーコールバック
+### 11.4 Googleカレンダーコールバック
 
 ```http
 GET /api/v1/integrations/google-calendar/callback?code=<code>&state=<state>
@@ -667,16 +842,16 @@ GET /api/v1/integrations/google-calendar/callback?code=<code>&state=<state>
 成功時は次へ`303`でリダイレクトする。
 
 ```text
-{PUBLIC_APP_URL}?google_calendar=connected
+{PUBLIC_APP_URL}/account?google_calendar=connected
 ```
 
-### 10.5 Googleカレンダー一覧
+### 11.5 Googleカレンダー一覧
 
 ```http
 GET /api/v1/integrations/google-calendar/calendars
 ```
 
-空き時間の判定対象として選択できるカレンダーを返す。予定のタイトルや内容は返さない。
+空き時間の判定対象として選択できるメイン・共有・サブカレンダーを返す。予定のタイトルや内容は返さない。
 
 ```json
 {
@@ -694,7 +869,7 @@ GET /api/v1/integrations/google-calendar/calendars
 }
 ```
 
-### 10.6 Googleカレンダー連携解除
+### 11.6 Googleカレンダー連携解除
 
 ```http
 DELETE /api/v1/integrations/google-calendar
@@ -702,7 +877,7 @@ DELETE /api/v1/integrations/google-calendar
 
 Google側でRefresh Tokenを失効させた後、DBの暗号文を削除する。成功時は`204`。未連携の場合は`409 calendar_not_connected`。
 
-### 10.7 空き時間プレビュー
+### 11.7 空き時間プレビュー
 
 ```http
 POST /api/v1/events/{event_id}/google-calendar-availability/preview
@@ -733,13 +908,13 @@ POST /api/v1/events/{event_id}/google-calendar-availability/preview
 }
 ```
 
-## 11. イベント状態遷移
+## 12. イベント状態遷移
 
 ```mermaid
 stateDiagram-v2
     [*] --> open: 作成
-    open --> confirmed: 日程確定
-    confirmed --> open: 確定解除
+    open --> confirmed: 全体確定 / 全グループ確定
+    confirmed --> open: 全体またはいずれかのグループの確定解除
     open --> cancelled: 取消
     confirmed --> cancelled: 取消
 ```
@@ -747,15 +922,19 @@ stateDiagram-v2
 | 現在 | 操作 | 結果 |
 |---|---|---|
 | `open` | 参加・回答・内容更新 | 許可 |
-| `open` | 確定 | `confirmed` |
+| `open` | `whole_event`の全体日時を確定 | `confirmed` |
+| `open` | `groups`の一部グループを確定 | `open`のまま |
+| `open` | `groups`の全グループを確定 | `confirmed` |
 | `open` | 取消 | `cancelled` |
-| `confirmed` | 確定解除 | `open` |
+| `confirmed` | 全体またはいずれかのグループの確定解除 | `open` |
 | `confirmed` | 取消 | `cancelled` |
 | `confirmed` | 参加・回答・内容更新 | 拒否 |
 | `cancelled` | 再度取消 | `cancelled`のまま成功 |
 | `cancelled` | その他の変更 | 拒否 |
 
-## 12. 現在の制約と本番運用上の注意
+`groups`モードはグループ0件の準備中状態を許容するが、この状態で`confirmed`へ遷移することはない。
+
+## 13. 現在の制約と本番運用上の注意
 
 - フロントエンドとAPIは同一サイト配下での利用を前提とする。
 - CORSミドルウェア、Origin検証、CSRFトークンは現時点では未実装。

@@ -57,11 +57,15 @@ type CreateEventParams struct {
 	WindowStartAt      time.Time
 	WindowEndAt        time.Time
 	DurationMinutes    int
+	SchedulingMode     string
 	ResponseDeadlineAt *time.Time
 	OrganizerName      string
 }
 
 func (s *Store) CreateEvent(ctx context.Context, params CreateEventParams) (domain.Event, error) {
+	if params.SchedulingMode == "" {
+		params.SchedulingMode = "whole_event"
+	}
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
 		return domain.Event{}, fmt.Errorf("begin create event: %w", err)
@@ -71,12 +75,12 @@ func (s *Store) CreateEvent(ctx context.Context, params CreateEventParams) (doma
 	row := tx.QueryRow(ctx, `
 		INSERT INTO events (
 			created_by_user_id, invite_token_hash, title, description, time_zone,
-			window_start_at, window_end_at, duration_minutes, response_deadline_at
+			window_start_at, window_end_at, duration_minutes, scheduling_mode, response_deadline_at
 		)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
 		RETURNING `+eventColumns, params.CreatedByUserID, params.InviteTokenHash, params.Title,
 		params.Description, params.TimeZone, params.WindowStartAt, params.WindowEndAt,
-		params.DurationMinutes, params.ResponseDeadlineAt)
+		params.DurationMinutes, params.SchedulingMode, params.ResponseDeadlineAt)
 	event, err := scanEvent(row)
 	if err != nil {
 		return domain.Event{}, fmt.Errorf("insert event: %w", err)
@@ -154,20 +158,62 @@ type UpdateEventParams struct {
 	WindowStartAt      time.Time
 	WindowEndAt        time.Time
 	DurationMinutes    int
+	SchedulingMode     string
 	ResponseDeadlineAt *time.Time
 }
 
 func (s *Store) UpdateEvent(ctx context.Context, params UpdateEventParams) (domain.Event, error) {
-	row := s.pool.QueryRow(ctx, `
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return domain.Event{}, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	var currentMode string
+	if err := tx.QueryRow(ctx, `
+		SELECT e.scheduling_mode
+		FROM events e
+		WHERE e.id = $1 AND e.created_by_user_id = $2 AND e.status = 'open'
+		FOR UPDATE OF e
+	`, params.EventID, params.UserID).Scan(&currentMode); err != nil {
+		return domain.Event{}, translateNotFound(err)
+	}
+	if params.SchedulingMode == "" {
+		params.SchedulingMode = currentMode
+	}
+	if currentMode != params.SchedulingMode {
+		var groupCount, confirmedCount int
+		if err := tx.QueryRow(ctx, `
+			SELECT COUNT(*)::int, COUNT(confirmed_start_at)::int
+			FROM scheduling_groups WHERE event_id = $1
+		`, params.EventID).Scan(&groupCount, &confirmedCount); err != nil {
+			return domain.Event{}, err
+		}
+		if confirmedCount > 0 {
+			return domain.Event{}, domain.ErrGroupConfirmationExists
+		}
+		if currentMode == "groups" && params.SchedulingMode == "whole_event" && groupCount > 0 {
+			return domain.Event{}, domain.ErrGroupNotEditable
+		}
+	}
+	row := tx.QueryRow(ctx, `
 		UPDATE events
 		SET title = $3, description = $4, time_zone = $5, window_start_at = $6,
-			window_end_at = $7, duration_minutes = $8, response_deadline_at = $9,
+			window_end_at = $7, duration_minutes = $8, scheduling_mode = $9,
+			response_deadline_at = $10,
 			updated_at = CURRENT_TIMESTAMP
 		WHERE id = $1 AND created_by_user_id = $2 AND status = 'open'
 		RETURNING `+eventColumns,
 		params.EventID, params.UserID, params.Title, params.Description, params.TimeZone,
-		params.WindowStartAt, params.WindowEndAt, params.DurationMinutes, params.ResponseDeadlineAt)
-	return scanEvent(row)
+		params.WindowStartAt, params.WindowEndAt, params.DurationMinutes, params.SchedulingMode,
+		params.ResponseDeadlineAt)
+	event, err := scanEvent(row)
+	if err != nil {
+		return domain.Event{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return domain.Event{}, err
+	}
+	return event, nil
 }
 
 func (s *Store) RotateInviteToken(ctx context.Context, eventID, userID, tokenHash string) error {
@@ -385,9 +431,22 @@ func (s *Store) changeEventState(ctx context.Context, eventID, userID, next stri
 	}
 
 	row := tx.QueryRow(ctx, `
-		UPDATE events
-		SET status = $2, confirmed_start_at = $3, confirmed_end_at = $4, updated_at = CURRENT_TIMESTAMP
-		WHERE id = $1
+		UPDATE events e
+		SET status = CASE
+				WHEN $2 = 'open'
+					AND e.scheduling_mode = 'groups'
+					AND EXISTS (SELECT 1 FROM scheduling_groups g WHERE g.event_id = e.id)
+					AND NOT EXISTS (
+						SELECT 1 FROM scheduling_groups g
+						WHERE g.event_id = e.id AND g.confirmed_start_at IS NULL
+					)
+				THEN 'confirmed'
+				ELSE $2
+			END,
+			confirmed_start_at = $3,
+			confirmed_end_at = $4,
+			updated_at = CURRENT_TIMESTAMP
+		WHERE e.id = $1
 		RETURNING `+eventColumns, eventID, next, startAt, endAt)
 	event, err := scanEvent(row)
 	if err != nil {
@@ -436,19 +495,25 @@ func (s *Store) listIntervals(ctx context.Context, participantID string) ([]doma
 
 const eventColumns = `
 	id::text, created_by_user_id::text, title, description, time_zone,
-	window_start_at, window_end_at, duration_minutes, status,
+	window_start_at, window_end_at, duration_minutes, scheduling_mode, status,
 	confirmed_start_at, confirmed_end_at, response_deadline_at, created_at, updated_at`
 
 func prefixedEventColumns(prefix string) string {
 	return prefix + `.id::text, ` + prefix + `.created_by_user_id::text, ` + prefix + `.title, ` +
 		prefix + `.description, ` + prefix + `.time_zone, ` + prefix + `.window_start_at, ` +
-		prefix + `.window_end_at, ` + prefix + `.duration_minutes, ` + prefix + `.status, ` +
+		prefix + `.window_end_at, ` + prefix + `.duration_minutes, ` + prefix + `.scheduling_mode, ` + prefix + `.status, ` +
 		prefix + `.confirmed_start_at, ` + prefix + `.confirmed_end_at, ` + prefix + `.response_deadline_at, ` +
 		prefix + `.created_at, ` + prefix + `.updated_at`
 }
 
 const participantColumns = `
 	id::text, event_id::text, user_id::text, display_name, role, response_status, created_at, updated_at`
+
+func prefixedParticipantColumns(prefix string) string {
+	return prefix + `.id::text, ` + prefix + `.event_id::text, ` + prefix + `.user_id::text, ` +
+		prefix + `.display_name, ` + prefix + `.role, ` + prefix + `.response_status, ` +
+		prefix + `.created_at, ` + prefix + `.updated_at`
+}
 
 const availabilityColumns = `
 	id::text, participant_id::text, start_at, end_at, source, created_at, updated_at`
@@ -467,7 +532,7 @@ func scanEvent(row rowScanner) (domain.Event, error) {
 	var value domain.Event
 	err := row.Scan(
 		&value.ID, &value.CreatedByUserID, &value.Title, &value.Description, &value.TimeZone,
-		&value.WindowStartAt, &value.WindowEndAt, &value.DurationMinutes, &value.Status,
+		&value.WindowStartAt, &value.WindowEndAt, &value.DurationMinutes, &value.SchedulingMode, &value.Status,
 		&value.ConfirmedStartAt, &value.ConfirmedEndAt, &value.ResponseDeadlineAt, &value.CreatedAt, &value.UpdatedAt,
 	)
 	return value, translateNotFound(err)

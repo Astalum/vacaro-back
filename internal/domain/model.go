@@ -21,12 +21,26 @@ type Event struct {
 	WindowStartAt      time.Time  `json:"window_start_at"`
 	WindowEndAt        time.Time  `json:"window_end_at"`
 	DurationMinutes    int        `json:"duration_minutes"`
+	SchedulingMode     string     `json:"scheduling_mode"`
 	Status             string     `json:"status"`
 	ConfirmedStartAt   *time.Time `json:"confirmed_start_at"`
 	ConfirmedEndAt     *time.Time `json:"confirmed_end_at"`
 	ResponseDeadlineAt *time.Time `json:"response_deadline_at"`
 	CreatedAt          time.Time  `json:"created_at"`
 	UpdatedAt          time.Time  `json:"updated_at"`
+}
+
+type SchedulingGroup struct {
+	ID               string        `json:"id"`
+	EventID          string        `json:"event_id"`
+	Name             string        `json:"name"`
+	DurationMinutes  int           `json:"duration_minutes"`
+	ConfirmedStartAt *time.Time    `json:"confirmed_start_at"`
+	ConfirmedEndAt   *time.Time    `json:"confirmed_end_at"`
+	MemberCount      int           `json:"member_count"`
+	Members          []Participant `json:"members"`
+	CreatedAt        time.Time     `json:"created_at"`
+	UpdatedAt        time.Time     `json:"updated_at"`
 }
 
 type Participant struct {

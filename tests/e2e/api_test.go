@@ -25,9 +25,23 @@ type user struct {
 }
 
 type event struct {
-	ID          string `json:"id"`
-	InviteToken string `json:"invite_token"`
-	Status      string `json:"status"`
+	ID               string     `json:"id"`
+	InviteToken      string     `json:"invite_token"`
+	Status           string     `json:"status"`
+	SchedulingMode   string     `json:"scheduling_mode"`
+	ConfirmedStartAt *time.Time `json:"confirmed_start_at"`
+}
+
+type participant struct {
+	ID string `json:"id"`
+}
+
+type schedulingGroup struct {
+	ID               string        `json:"id"`
+	Name             string        `json:"name"`
+	DurationMinutes  int           `json:"duration_minutes"`
+	Members          []participant `json:"members"`
+	ConfirmedStartAt *time.Time    `json:"confirmed_start_at"`
 }
 
 func TestMVPFlow(t *testing.T) {
@@ -170,6 +184,99 @@ func TestCopyAvailabilityFlow(t *testing.T) {
 	if !result.Intervals[0].StartAt.Equal(start.Add(2*time.Hour)) || !result.Intervals[0].EndAt.Equal(start.Add(3*time.Hour)) {
 		t.Fatalf("clipped interval = %#v", result.Intervals[0])
 	}
+}
+
+func TestSchedulingGroupFlow(t *testing.T) {
+	baseURL := os.Getenv("E2E_BASE_URL")
+	databaseURL := os.Getenv("E2E_DATABASE_URL")
+	if baseURL == "" || databaseURL == "" {
+		t.Skip("E2E_BASE_URL and E2E_DATABASE_URL are required")
+	}
+
+	organizer := newClient(t)
+	organizerUser := createGuest(t, organizer, baseURL, "Group E2E Organizer")
+	var eventID string
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		pool, err := pgxpool.New(ctx, databaseURL)
+		if err != nil {
+			t.Logf("cleanup connection failed: %v", err)
+			return
+		}
+		defer pool.Close()
+		if eventID != "" {
+			_, _ = pool.Exec(ctx, "DELETE FROM events WHERE id = $1", eventID)
+		}
+		_, _ = pool.Exec(ctx, "DELETE FROM users WHERE id = $1", organizerUser.ID)
+	})
+
+	start := time.Now().UTC().Add(72 * time.Hour).Truncate(time.Minute)
+	created := doJSON[event](t, organizer, http.MethodPost, baseURL+"/api/v1/events", map[string]any{
+		"title": "Group E2E Event", "time_zone": "Asia/Tokyo",
+		"window_start_at": start, "window_end_at": start.Add(4 * time.Hour),
+		"duration_minutes": 60, "scheduling_mode": "groups",
+	}, http.StatusCreated)
+	eventID = created.ID
+	if created.SchedulingMode != "groups" {
+		t.Fatalf("scheduling_mode = %q, want groups", created.SchedulingMode)
+	}
+
+	participants := doJSON[[]participant](t, organizer, http.MethodGet, baseURL+"/api/v1/events/"+eventID+"/participants", nil, http.StatusOK)
+	if len(participants) != 1 {
+		t.Fatalf("participants = %#v", participants)
+	}
+	duration := 30
+	group := doJSON[schedulingGroup](t, organizer, http.MethodPost, baseURL+"/api/v1/events/"+eventID+"/groups", map[string]any{
+		"name": " Design ", "duration_minutes": duration,
+		"participant_ids": []string{participants[0].ID},
+	}, http.StatusCreated)
+	if group.Name != "Design" || group.DurationMinutes != duration || len(group.Members) != 1 {
+		t.Fatalf("created group = %#v", group)
+	}
+
+	doJSON[map[string]any](t, organizer, http.MethodPut, baseURL+"/api/v1/events/"+eventID+"/my-availability", map[string]any{
+		"intervals": []map[string]time.Time{{"start_at": start, "end_at": start.Add(2 * time.Hour)}},
+	}, http.StatusOK)
+	candidates := doJSON[[]struct {
+		AvailableCount int `json:"available_participant_count"`
+	}](t, organizer, http.MethodGet, baseURL+"/api/v1/events/"+eventID+"/groups/"+group.ID+"/candidates", nil, http.StatusOK)
+	if len(candidates) == 0 || candidates[0].AvailableCount != 1 {
+		t.Fatalf("group candidates = %#v", candidates)
+	}
+
+	confirmed := doJSON[schedulingGroup](t, organizer, http.MethodPut, baseURL+"/api/v1/events/"+eventID+"/groups/"+group.ID+"/confirmation", map[string]time.Time{
+		"start_at": start, "end_at": start.Add(30 * time.Minute),
+	}, http.StatusOK)
+	if confirmed.ConfirmedStartAt == nil {
+		t.Fatal("group was not confirmed")
+	}
+	confirmedEvent := doJSON[event](t, organizer, http.MethodGet, baseURL+"/api/v1/events/"+eventID, nil, http.StatusOK)
+	if confirmedEvent.Status != "confirmed" {
+		t.Fatalf("event status = %q, want confirmed", confirmedEvent.Status)
+	}
+
+	doJSON[schedulingGroup](t, organizer, http.MethodDelete, baseURL+"/api/v1/events/"+eventID+"/groups/"+group.ID+"/confirmation", nil, http.StatusOK)
+	reopenedEvent := doJSON[event](t, organizer, http.MethodGet, baseURL+"/api/v1/events/"+eventID, nil, http.StatusOK)
+	if reopenedEvent.Status != "open" {
+		t.Fatalf("event status after reopen = %q, want open", reopenedEvent.Status)
+	}
+
+	confirmedWhole := doJSON[event](t, organizer, http.MethodPut, baseURL+"/api/v1/events/"+eventID+"/confirmation", map[string]time.Time{
+		"start_at": start, "end_at": start.Add(time.Hour),
+	}, http.StatusOK)
+	if confirmedWhole.ConfirmedStartAt == nil || confirmedWhole.Status != "confirmed" {
+		t.Fatalf("whole group-mode event was not confirmed: %#v", confirmedWhole)
+	}
+	doJSON[schedulingGroup](t, organizer, http.MethodPut, baseURL+"/api/v1/events/"+eventID+"/groups/"+group.ID+"/confirmation", map[string]time.Time{
+		"start_at": start, "end_at": start.Add(30 * time.Minute),
+	}, http.StatusOK)
+	reopenedWhole := doJSON[event](t, organizer, http.MethodDelete, baseURL+"/api/v1/events/"+eventID+"/confirmation", nil, http.StatusOK)
+	if reopenedWhole.Status != "confirmed" {
+		t.Fatalf("event status after whole reopen = %q, want confirmed groups status", reopenedWhole.Status)
+	}
+	doJSON[schedulingGroup](t, organizer, http.MethodDelete, baseURL+"/api/v1/events/"+eventID+"/groups/"+group.ID+"/confirmation", nil, http.StatusOK)
+	doNoContent(t, organizer, http.MethodDelete, baseURL+"/api/v1/events/"+eventID+"/groups/"+group.ID)
 }
 
 func createE2EEvent(t *testing.T, client *http.Client, baseURL, title string, start, end time.Time) event {

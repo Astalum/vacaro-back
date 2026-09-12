@@ -53,6 +53,12 @@ func writeAPIError(w http.ResponseWriter, r *http.Request, err error) {
 		status, code, message = http.StatusConflict, "organizer_cannot_leave", "主催者はイベントから退出できません"
 	case errors.Is(err, domain.ErrInvalidTransition):
 		status, code, message = http.StatusConflict, "invalid_event_transition", "イベントの状態を変更できません"
+	case errors.Is(err, domain.ErrGroupNotEditable):
+		status, code, message = http.StatusConflict, "group_not_editable", "小グループを変更できない状態です"
+	case errors.Is(err, domain.ErrGroupConfirmationExists):
+		status, code, message = http.StatusConflict, "group_confirmation_exists", "確定済みの小グループがあります"
+	case errors.Is(err, domain.ErrDuplicateGroupName):
+		status, code, message = http.StatusUnprocessableEntity, "validation_failed", "同じ名前の小グループが既にあります"
 	case errors.Is(err, domain.ErrGoogleNotConfigured):
 		status, code, message = http.StatusServiceUnavailable, "google_not_configured", "Google連携は現在利用できません"
 	case errors.Is(err, domain.ErrCalendarNotConnected):

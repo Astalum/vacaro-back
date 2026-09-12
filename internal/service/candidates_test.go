@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -30,6 +31,36 @@ func TestCalculateCandidates(t *testing.T) {
 	}
 	if !got[0].StartAt.Equal(base.Add(time.Hour)) || got[0].AvailableParticipantCount != 2 {
 		t.Errorf("first candidate = %#v, want 01:00 with two participants", got[0])
+	}
+}
+
+func TestCandidatesAllowsWholeViewForGroupScheduling(t *testing.T) {
+	base := time.Date(2026, 9, 10, 0, 0, 0, 0, time.UTC)
+	store := storeStub{
+		getEventForUser: func(context.Context, string, string) (domain.Event, error) {
+			return domain.Event{
+				SchedulingMode: "groups", WindowStartAt: base,
+				WindowEndAt: base.Add(2 * time.Hour), DurationMinutes: 60,
+			}, nil
+		},
+		listAvailability: func(context.Context, string, string) ([]domain.ParticipantAvailability, error) {
+			return []domain.ParticipantAvailability{{
+				Participant: domain.Participant{ID: "participant-1"},
+				Intervals: []domain.AvailabilityInterval{{
+					StartAt: base, EndAt: base.Add(2 * time.Hour),
+				}},
+			}}, nil
+		},
+	}
+
+	candidates, err := New(store, time.Hour, "").Candidates(
+		context.Background(), "event", "user", 20,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(candidates) == 0 || candidates[0].TotalParticipantCount != 1 {
+		t.Fatalf("candidates = %#v", candidates)
 	}
 }
 
