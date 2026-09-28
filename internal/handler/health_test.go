@@ -54,3 +54,16 @@ func TestReady(t *testing.T) {
 		})
 	}
 }
+
+func TestReadyThroughPublicAPIPath(t *testing.T) {
+	mux := http.NewServeMux()
+	NewHealth(pingerStub{}).Register(mux)
+
+	request := httptest.NewRequest(http.MethodGet, "/api/ready", nil)
+	response := httptest.NewRecorder()
+	mux.ServeHTTP(response, request)
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", response.Code, http.StatusOK)
+	}
+}

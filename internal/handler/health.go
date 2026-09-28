@@ -23,6 +23,7 @@ func NewHealth(database DatabasePinger) *Health {
 func (h *Health) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /health", h.live)
 	mux.HandleFunc("GET /ready", h.ready)
+	mux.HandleFunc("GET /api/ready", h.ready)
 }
 
 func (h *Health) live(w http.ResponseWriter, _ *http.Request) {
