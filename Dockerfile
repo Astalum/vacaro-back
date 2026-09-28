@@ -42,4 +42,11 @@ USER app
 
 EXPOSE 8080
 
+HEALTHCHECK --interval=10s --timeout=3s --start-period=10s --retries=3 \
+    CMD wget --quiet --tries=1 --spider http://127.0.0.1:8080/ready || exit 1
+
 ENTRYPOINT ["/app/vacaro-api"]
+
+FROM migrate/migrate:v4.19.1 AS migrations
+
+COPY db/migrations /migrations

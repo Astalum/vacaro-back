@@ -109,6 +109,17 @@ docker run --rm -p 8080:8080 \
 - `GET /health`: APIプロセスが動作しているか確認するLivenessチェック
 - `GET /ready`: PostgreSQLへ接続でき、リクエストを処理できるか確認するReadinessチェック
 
+## 本番イメージの発行
+
+`main`へのpush時にGitHub Actionsがテストと`go vet`を実行し、成功したコミットのAPIイメージとマイグレーションイメージをGHCRへ発行します。
+
+```text
+ghcr.io/astalum/vacaro-back:sha-<40桁のcommit SHA>
+ghcr.io/astalum/vacaro-back:migrations-sha-<40桁のcommit SHA>
+```
+
+本番VPSではソースコードやGoコンパイラを配置せず、これらの不変タグをComposeからpullして使用します。マイグレーションイメージには`migrate`コマンドと`db/migrations`だけが含まれます。
+
 ## API
 
 主なAPIは次のとおりです。詳しいリクエスト・レスポンスは[API仕様書](docs/api-design.md)を参照してください。
