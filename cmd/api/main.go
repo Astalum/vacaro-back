@@ -10,6 +10,7 @@ import (
 	"os/signal"
 	"syscall"
 	"time"
+	_ "time/tzdata" // Embed IANA time zone data for minimal production images.
 
 	"github.com/astalum/vacaro-back/internal/auth"
 	"github.com/astalum/vacaro-back/internal/config"
