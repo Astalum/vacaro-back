@@ -46,6 +46,9 @@ func TestRecover(t *testing.T) {
 	if response.Code != http.StatusInternalServerError {
 		t.Fatalf("status = %d, want %d", response.Code, http.StatusInternalServerError)
 	}
+	if contentType := response.Header().Get("Content-Type"); contentType != "application/json; charset=utf-8" {
+		t.Errorf("Content-Type = %q", contentType)
+	}
 	var body struct {
 		Error struct {
 			Code string `json:"code"`

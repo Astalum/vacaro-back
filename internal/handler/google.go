@@ -2,6 +2,7 @@ package handler
 
 import (
 	"fmt"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"strings"
@@ -9,6 +10,7 @@ import (
 
 	"github.com/astalum/vacaro-back/internal/auth"
 	"github.com/astalum/vacaro-back/internal/domain"
+	appmiddleware "github.com/astalum/vacaro-back/internal/middleware"
 )
 
 const (
@@ -41,19 +43,36 @@ func (a *API) startGoogleLogin(w http.ResponseWriter, r *http.Request) {
 func (a *API) completeGoogleLogin(w http.ResponseWriter, r *http.Request) {
 	state, err := a.consumeGoogleCallback(w, r, googleLoginPurpose)
 	if err != nil {
-		writeAPIError(w, r, err)
+		callbackWasSuccessful := strings.TrimSpace(r.URL.Query().Get("code")) != "" &&
+			strings.TrimSpace(r.URL.Query().Get("error")) == ""
+		if session, sessionErr := a.sessions.Read(r); callbackWasSuccessful &&
+			sessionErr == nil && session.AccountType == "registered" {
+			a.redirectGoogleLoginResult(w, r, "success")
+			return
+		}
+		a.redirectGoogleLoginError(w, r, err)
 		return
 	}
 	user, expiresAt, err := a.service.CompleteGoogleLogin(r.Context(), r.URL.Query().Get("code"), state.Nonce, state.UserID)
 	if err != nil {
-		writeAPIError(w, r, err)
+		a.redirectGoogleLoginError(w, r, err)
 		return
 	}
 	if err := a.sessions.Set(w, auth.Session{UserID: user.ID, AccountType: user.AccountType, ExpiresAt: expiresAt.Unix()}); err != nil {
-		writeAPIError(w, r, err)
+		a.redirectGoogleLoginError(w, r, err)
 		return
 	}
-	http.Redirect(w, r, appendResult(a.publicAppURL, "google_login", "success"), http.StatusSeeOther)
+	a.redirectGoogleLoginResult(w, r, "success")
+}
+
+func (a *API) redirectGoogleLoginError(w http.ResponseWriter, r *http.Request, err error) {
+	slog.Warn("Google login callback failed", "error", err, "request_id", appmiddleware.RequestIDFromContext(r.Context()))
+	a.redirectGoogleLoginResult(w, r, "error")
+}
+
+func (a *API) redirectGoogleLoginResult(w http.ResponseWriter, r *http.Request, result string) {
+	w.Header().Set("Cache-Control", "no-store")
+	http.Redirect(w, r, appendResult(a.publicAppURL, "google_login", result), http.StatusSeeOther)
 }
 
 func (a *API) startGoogleCalendar(w http.ResponseWriter, r *http.Request) {

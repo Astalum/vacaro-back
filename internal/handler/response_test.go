@@ -80,6 +80,9 @@ func TestWriteAPIError(t *testing.T) {
 			if response.Code != tt.wantStatus {
 				t.Fatalf("status = %d, want %d", response.Code, tt.wantStatus)
 			}
+			if contentType := response.Header().Get("Content-Type"); contentType != "application/json; charset=utf-8" {
+				t.Errorf("Content-Type = %q", contentType)
+			}
 			if !strings.Contains(response.Body.String(), `"code":"`+tt.wantCode+`"`) {
 				t.Errorf("body = %s, want code %q", response.Body.String(), tt.wantCode)
 			}

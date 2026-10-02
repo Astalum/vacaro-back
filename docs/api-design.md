@@ -815,6 +815,14 @@ Googleの`sub`をアカウント識別子として使用し、メールアドレ
 {PUBLIC_APP_URL}?google_login=success
 ```
 
+認証を完了できなかった場合もブラウザへJSONを直接表示せず、次へ`303`でリダイレクトする。callbackレスポンスには`Cache-Control: no-store`を設定する。
+
+```text
+{PUBLIC_APP_URL}?google_login=error
+```
+
+ログイン成功後にブラウザの履歴復元などで同じ認可コード付きcallbackが再訪された場合は、登録ユーザー用セッションが有効なら認可コードを再交換せず成功URLへリダイレクトする。Googleがエラーを返したcallbackは再訪成功として扱わない。
+
 ### 11.3 Googleカレンダー連携開始
 
 ```http

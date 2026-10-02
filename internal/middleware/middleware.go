@@ -90,7 +90,7 @@ func (r *statusRecorder) WriteHeader(status int) {
 }
 
 func writeError(w http.ResponseWriter, status int, code, message, requestID string) {
-	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(map[string]any{
 		"error": map[string]any{
