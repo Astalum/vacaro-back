@@ -122,6 +122,9 @@ func (s *Service) ListGroupAvailability(ctx context.Context, eventID, groupID, u
 	if event.SchedulingMode != "groups" {
 		return nil, domain.ErrGroupNotEditable
 	}
+	if !canViewResults(event, userID) {
+		return nil, domain.ErrPermissionDenied
+	}
 	return s.store.ListGroupAvailability(ctx, eventID, groupID, userID)
 }
 
@@ -132,6 +135,9 @@ func (s *Service) GroupCandidates(ctx context.Context, eventID, groupID, userID 
 	}
 	if event.SchedulingMode != "groups" {
 		return nil, domain.ErrGroupNotEditable
+	}
+	if !canViewResults(event, userID) {
+		return nil, domain.ErrPermissionDenied
 	}
 	group, err := s.store.GetGroup(ctx, eventID, groupID, userID)
 	if err != nil {

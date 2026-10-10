@@ -49,17 +49,18 @@ func (s *Store) UpdateUserName(ctx context.Context, userID, displayName string) 
 }
 
 type CreateEventParams struct {
-	CreatedByUserID    string
-	InviteTokenHash    string
-	Title              string
-	Description        *string
-	TimeZone           string
-	WindowStartAt      time.Time
-	WindowEndAt        time.Time
-	DurationMinutes    int
-	SchedulingMode     string
-	ResponseDeadlineAt *time.Time
-	OrganizerName      string
+	CreatedByUserID              string
+	InviteTokenHash              string
+	Title                        string
+	Description                  *string
+	TimeZone                     string
+	WindowStartAt                time.Time
+	WindowEndAt                  time.Time
+	DurationMinutes              int
+	SchedulingMode               string
+	ResponseDeadlineAt           *time.Time
+	ResultsVisibleToParticipants *bool
+	OrganizerName                string
 }
 
 func (s *Store) CreateEvent(ctx context.Context, params CreateEventParams) (domain.Event, error) {
@@ -75,12 +76,14 @@ func (s *Store) CreateEvent(ctx context.Context, params CreateEventParams) (doma
 	row := tx.QueryRow(ctx, `
 		INSERT INTO events (
 			created_by_user_id, invite_token_hash, title, description, time_zone,
-			window_start_at, window_end_at, duration_minutes, scheduling_mode, response_deadline_at
+			window_start_at, window_end_at, duration_minutes, scheduling_mode, response_deadline_at,
+			results_visible_to_participants
 		)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, COALESCE($11::boolean, TRUE))
 		RETURNING `+eventColumns, params.CreatedByUserID, params.InviteTokenHash, params.Title,
 		params.Description, params.TimeZone, params.WindowStartAt, params.WindowEndAt,
-		params.DurationMinutes, params.SchedulingMode, params.ResponseDeadlineAt)
+		params.DurationMinutes, params.SchedulingMode, params.ResponseDeadlineAt,
+		params.ResultsVisibleToParticipants)
 	event, err := scanEvent(row)
 	if err != nil {
 		return domain.Event{}, fmt.Errorf("insert event: %w", err)
@@ -214,6 +217,16 @@ func (s *Store) UpdateEvent(ctx context.Context, params UpdateEventParams) (doma
 		return domain.Event{}, err
 	}
 	return event, nil
+}
+
+func (s *Store) SetResultsVisibility(ctx context.Context, eventID, userID string, visible bool) (domain.Event, error) {
+	row := s.pool.QueryRow(ctx, `
+		UPDATE events
+		SET results_visible_to_participants = $3, updated_at = CURRENT_TIMESTAMP
+		WHERE id = $1 AND created_by_user_id = $2
+		RETURNING `+eventColumns,
+		eventID, userID, visible)
+	return scanEvent(row)
 }
 
 func (s *Store) RotateInviteToken(ctx context.Context, eventID, userID, tokenHash string) error {
@@ -501,14 +514,15 @@ func (s *Store) listIntervals(ctx context.Context, participantID string) ([]doma
 const eventColumns = `
 	id::text, created_by_user_id::text, title, description, time_zone,
 	window_start_at, window_end_at, duration_minutes, scheduling_mode, status,
-	confirmed_start_at, confirmed_end_at, response_deadline_at, created_at, updated_at`
+	confirmed_start_at, confirmed_end_at, response_deadline_at,
+	results_visible_to_participants, created_at, updated_at`
 
 func prefixedEventColumns(prefix string) string {
 	return prefix + `.id::text, ` + prefix + `.created_by_user_id::text, ` + prefix + `.title, ` +
 		prefix + `.description, ` + prefix + `.time_zone, ` + prefix + `.window_start_at, ` +
 		prefix + `.window_end_at, ` + prefix + `.duration_minutes, ` + prefix + `.scheduling_mode, ` + prefix + `.status, ` +
 		prefix + `.confirmed_start_at, ` + prefix + `.confirmed_end_at, ` + prefix + `.response_deadline_at, ` +
-		prefix + `.created_at, ` + prefix + `.updated_at`
+		prefix + `.results_visible_to_participants, ` + prefix + `.created_at, ` + prefix + `.updated_at`
 }
 
 const participantColumns = `
@@ -538,7 +552,8 @@ func scanEvent(row rowScanner) (domain.Event, error) {
 	err := row.Scan(
 		&value.ID, &value.CreatedByUserID, &value.Title, &value.Description, &value.TimeZone,
 		&value.WindowStartAt, &value.WindowEndAt, &value.DurationMinutes, &value.SchedulingMode, &value.Status,
-		&value.ConfirmedStartAt, &value.ConfirmedEndAt, &value.ResponseDeadlineAt, &value.CreatedAt, &value.UpdatedAt,
+		&value.ConfirmedStartAt, &value.ConfirmedEndAt, &value.ResponseDeadlineAt,
+		&value.ResultsVisibleToParticipants, &value.CreatedAt, &value.UpdatedAt,
 	)
 	return value, translateNotFound(err)
 }

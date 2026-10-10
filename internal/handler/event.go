@@ -9,14 +9,15 @@ import (
 )
 
 type eventRequest struct {
-	Title              string     `json:"title"`
-	Description        *string    `json:"description"`
-	TimeZone           string     `json:"time_zone"`
-	WindowStartAt      time.Time  `json:"window_start_at"`
-	WindowEndAt        time.Time  `json:"window_end_at"`
-	DurationMinutes    int        `json:"duration_minutes"`
-	SchedulingMode     string     `json:"scheduling_mode"`
-	ResponseDeadlineAt *time.Time `json:"response_deadline_at"`
+	Title                        string     `json:"title"`
+	Description                  *string    `json:"description"`
+	TimeZone                     string     `json:"time_zone"`
+	WindowStartAt                time.Time  `json:"window_start_at"`
+	WindowEndAt                  time.Time  `json:"window_end_at"`
+	DurationMinutes              int        `json:"duration_minutes"`
+	SchedulingMode               string     `json:"scheduling_mode"`
+	ResponseDeadlineAt           *time.Time `json:"response_deadline_at"`
+	ResultsVisibleToParticipants *bool      `json:"results_visible_to_participants"`
 }
 
 func (a *API) createEvent(w http.ResponseWriter, r *http.Request) {
@@ -29,7 +30,8 @@ func (a *API) createEvent(w http.ResponseWriter, r *http.Request) {
 		Title: request.Title, Description: request.Description, TimeZone: request.TimeZone,
 		WindowStartAt: request.WindowStartAt, WindowEndAt: request.WindowEndAt,
 		DurationMinutes: request.DurationMinutes, SchedulingMode: request.SchedulingMode,
-		ResponseDeadlineAt: request.ResponseDeadlineAt,
+		ResponseDeadlineAt:           request.ResponseDeadlineAt,
+		ResultsVisibleToParticipants: request.ResultsVisibleToParticipants,
 	})
 	if err != nil {
 		writeAPIError(w, r, err)
@@ -97,6 +99,30 @@ func (a *API) updateEvent(w http.ResponseWriter, r *http.Request) {
 		ResponseDeadlineAt: deadline,
 		DeadlineSet:        request.ResponseDeadlineAt.Set,
 	})
+	if err != nil {
+		writeAPIError(w, r, err)
+		return
+	}
+	writeData(w, http.StatusOK, event)
+}
+
+func (a *API) updateResultsVisibility(w http.ResponseWriter, r *http.Request) {
+	var request struct {
+		Visible *bool `json:"visible"`
+	}
+	if err := decodeJSON(w, r, &request); err != nil {
+		writeInvalidJSON(w, r)
+		return
+	}
+	if request.Visible == nil {
+		writeAPIError(w, r, &service.ValidationError{Fields: map[string]string{
+			"visible": "公開するかどうかを指定してください",
+		}})
+		return
+	}
+	event, err := a.service.UpdateResultsVisibility(
+		r.Context(), r.PathValue("event_id"), currentUserID(r), *request.Visible,
+	)
 	if err != nil {
 		writeAPIError(w, r, err)
 		return

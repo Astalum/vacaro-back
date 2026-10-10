@@ -67,6 +67,7 @@ func TestGroupCandidatesUsesGroupDurationAndMembers(t *testing.T) {
 			return domain.Event{
 				SchedulingMode: "groups", WindowStartAt: base,
 				WindowEndAt: base.Add(3 * time.Hour), DurationMinutes: 120,
+				ResultsVisibleToParticipants: true,
 			}, nil
 		},
 		getGroup: func(context.Context, string, string, string) (domain.SchedulingGroup, error) {

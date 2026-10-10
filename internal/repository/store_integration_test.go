@@ -71,6 +71,17 @@ func TestStoreIntegration(t *testing.T) {
 		t.Fatal(err)
 	}
 	eventID = event.ID
+	if !event.ResultsVisibleToParticipants {
+		t.Fatal("new event results visibility = false, want true")
+	}
+	event, err = store.SetResultsVisibility(ctx, event.ID, owner.ID, false)
+	if err != nil || event.ResultsVisibleToParticipants {
+		t.Fatalf("SetResultsVisibility() = %#v, %v", event, err)
+	}
+	event, err = store.SetResultsVisibility(ctx, event.ID, owner.ID, true)
+	if err != nil || !event.ResultsVisibleToParticipants {
+		t.Fatalf("SetResultsVisibility(true) = %#v, %v", event, err)
+	}
 
 	if _, err := store.GetEventForUser(ctx, event.ID, owner.ID); err != nil {
 		t.Fatal(err)

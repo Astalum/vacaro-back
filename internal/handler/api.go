@@ -36,6 +36,7 @@ func (a *API) Register(mux *http.ServeMux) {
 	mux.Handle("GET /api/v1/events", authenticated(a.listEvents))
 	mux.Handle("GET /api/v1/events/{event_id}", authenticated(a.getEvent))
 	mux.Handle("PATCH /api/v1/events/{event_id}", authenticated(a.updateEvent))
+	mux.Handle("PATCH /api/v1/events/{event_id}/results-visibility", authenticated(a.updateResultsVisibility))
 	mux.Handle("DELETE /api/v1/events/{event_id}", authenticated(a.cancelEvent))
 	mux.Handle("POST /api/v1/events/{event_id}/invite-token", authenticated(a.rotateInviteToken))
 	mux.Handle("PUT /api/v1/events/{event_id}/confirmation", authenticated(a.confirmEvent))

@@ -41,6 +41,7 @@ func TestCandidatesAllowsWholeViewForGroupScheduling(t *testing.T) {
 			return domain.Event{
 				SchedulingMode: "groups", WindowStartAt: base,
 				WindowEndAt: base.Add(2 * time.Hour), DurationMinutes: 60,
+				ResultsVisibleToParticipants: true,
 			}, nil
 		},
 		listAvailability: func(context.Context, string, string) ([]domain.ParticipantAvailability, error) {

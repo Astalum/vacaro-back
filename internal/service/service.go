@@ -52,6 +52,7 @@ type Store interface {
 	GetEventForUser(context.Context, string, string) (domain.Event, error)
 	GetEventByInviteHash(context.Context, string) (domain.Event, error)
 	UpdateEvent(context.Context, repository.UpdateEventParams) (domain.Event, error)
+	SetResultsVisibility(context.Context, string, string, bool) (domain.Event, error)
 	RotateInviteToken(context.Context, string, string, string) error
 	JoinEvent(context.Context, string, string, string) (domain.Participant, error)
 	ListParticipants(context.Context, string, string) ([]domain.Participant, error)
@@ -115,14 +116,15 @@ func (s *Service) UpdateUserName(ctx context.Context, userID, displayName string
 }
 
 type CreateEventInput struct {
-	Title              string
-	Description        *string
-	TimeZone           string
-	WindowStartAt      time.Time
-	WindowEndAt        time.Time
-	DurationMinutes    int
-	SchedulingMode     string
-	ResponseDeadlineAt *time.Time
+	Title                        string
+	Description                  *string
+	TimeZone                     string
+	WindowStartAt                time.Time
+	WindowEndAt                  time.Time
+	DurationMinutes              int
+	SchedulingMode               string
+	ResponseDeadlineAt           *time.Time
+	ResultsVisibleToParticipants *bool
 }
 
 type EventWithInvite struct {
@@ -149,6 +151,7 @@ func (s *Service) CreateEvent(ctx context.Context, userID string, input CreateEv
 		Description: input.Description, TimeZone: input.TimeZone, WindowStartAt: input.WindowStartAt,
 		WindowEndAt: input.WindowEndAt, DurationMinutes: input.DurationMinutes, SchedulingMode: input.SchedulingMode,
 		ResponseDeadlineAt: input.ResponseDeadlineAt, OrganizerName: user.DisplayName,
+		ResultsVisibleToParticipants: input.ResultsVisibleToParticipants,
 	})
 	if err != nil {
 		return EventWithInvite{}, err
@@ -216,6 +219,17 @@ func (s *Service) GetInvitation(ctx context.Context, token string) (domain.Event
 		return domain.Event{}, domain.ErrNotFound
 	}
 	return s.store.GetEventByInviteHash(ctx, hashToken(token))
+}
+
+func (s *Service) UpdateResultsVisibility(ctx context.Context, eventID, userID string, visible bool) (domain.Event, error) {
+	event, err := s.store.GetEventForUser(ctx, eventID, userID)
+	if err != nil {
+		return domain.Event{}, err
+	}
+	if event.CreatedByUserID != userID {
+		return domain.Event{}, domain.ErrPermissionDenied
+	}
+	return s.store.SetResultsVisibility(ctx, eventID, userID, visible)
 }
 
 type UpdateEventInput struct {
@@ -452,6 +466,13 @@ func (s *Service) CopyOwnAvailability(ctx context.Context, targetEventID, source
 }
 
 func (s *Service) ListAvailability(ctx context.Context, eventID, userID string) ([]domain.ParticipantAvailability, error) {
+	event, err := s.store.GetEventForUser(ctx, eventID, userID)
+	if err != nil {
+		return nil, err
+	}
+	if !canViewResults(event, userID) {
+		return nil, domain.ErrPermissionDenied
+	}
 	return s.store.ListAvailability(ctx, eventID, userID)
 }
 
@@ -459,6 +480,9 @@ func (s *Service) Candidates(ctx context.Context, eventID, userID string, limit 
 	event, err := s.store.GetEventForUser(ctx, eventID, userID)
 	if err != nil {
 		return nil, err
+	}
+	if !canViewResults(event, userID) {
+		return nil, domain.ErrPermissionDenied
 	}
 	availability, err := s.store.ListAvailability(ctx, eventID, userID)
 	if err != nil {
@@ -471,6 +495,10 @@ func (s *Service) Candidates(ctx context.Context, eventID, userID string, limit 
 		limit = 100
 	}
 	return calculateCandidates(event, availability, limit), nil
+}
+
+func canViewResults(event domain.Event, userID string) bool {
+	return event.CreatedByUserID == userID || event.ResultsVisibleToParticipants
 }
 
 func (s *Service) ConfirmEvent(ctx context.Context, eventID, userID string, startAt, endAt time.Time) (domain.Event, error) {

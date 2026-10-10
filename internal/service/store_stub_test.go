@@ -17,6 +17,7 @@ type storeStub struct {
 	getEventForUser       func(context.Context, string, string) (domain.Event, error)
 	getEventByInvite      func(context.Context, string) (domain.Event, error)
 	updateEvent           func(context.Context, repository.UpdateEventParams) (domain.Event, error)
+	setResultsVisibility  func(context.Context, string, string, bool) (domain.Event, error)
 	rotateInviteToken     func(context.Context, string, string, string) error
 	joinEvent             func(context.Context, string, string, string) (domain.Participant, error)
 	listParticipants      func(context.Context, string, string) ([]domain.Participant, error)
@@ -66,6 +67,9 @@ func (s storeStub) GetEventByInviteHash(ctx context.Context, hash string) (domai
 }
 func (s storeStub) UpdateEvent(ctx context.Context, params repository.UpdateEventParams) (domain.Event, error) {
 	return s.updateEvent(ctx, params)
+}
+func (s storeStub) SetResultsVisibility(ctx context.Context, eventID, userID string, visible bool) (domain.Event, error) {
+	return s.setResultsVisibility(ctx, eventID, userID, visible)
 }
 func (s storeStub) RotateInviteToken(ctx context.Context, eventID, userID, hash string) error {
 	return s.rotateInviteToken(ctx, eventID, userID, hash)

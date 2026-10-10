@@ -13,21 +13,22 @@ type User struct {
 }
 
 type Event struct {
-	ID                 string     `json:"id"`
-	CreatedByUserID    string     `json:"created_by_user_id,omitempty"`
-	Title              string     `json:"title"`
-	Description        *string    `json:"description"`
-	TimeZone           string     `json:"time_zone"`
-	WindowStartAt      time.Time  `json:"window_start_at"`
-	WindowEndAt        time.Time  `json:"window_end_at"`
-	DurationMinutes    int        `json:"duration_minutes"`
-	SchedulingMode     string     `json:"scheduling_mode"`
-	Status             string     `json:"status"`
-	ConfirmedStartAt   *time.Time `json:"confirmed_start_at"`
-	ConfirmedEndAt     *time.Time `json:"confirmed_end_at"`
-	ResponseDeadlineAt *time.Time `json:"response_deadline_at"`
-	CreatedAt          time.Time  `json:"created_at"`
-	UpdatedAt          time.Time  `json:"updated_at"`
+	ID                           string     `json:"id"`
+	CreatedByUserID              string     `json:"created_by_user_id,omitempty"`
+	Title                        string     `json:"title"`
+	Description                  *string    `json:"description"`
+	TimeZone                     string     `json:"time_zone"`
+	WindowStartAt                time.Time  `json:"window_start_at"`
+	WindowEndAt                  time.Time  `json:"window_end_at"`
+	DurationMinutes              int        `json:"duration_minutes"`
+	SchedulingMode               string     `json:"scheduling_mode"`
+	Status                       string     `json:"status"`
+	ConfirmedStartAt             *time.Time `json:"confirmed_start_at"`
+	ConfirmedEndAt               *time.Time `json:"confirmed_end_at"`
+	ResponseDeadlineAt           *time.Time `json:"response_deadline_at"`
+	ResultsVisibleToParticipants bool       `json:"results_visible_to_participants"`
+	CreatedAt                    time.Time  `json:"created_at"`
+	UpdatedAt                    time.Time  `json:"updated_at"`
 }
 
 type SchedulingGroup struct {

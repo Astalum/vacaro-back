@@ -41,6 +41,7 @@ func TestCreateGuestRejectsInvalidName(t *testing.T) {
 
 func TestCreateEvent(t *testing.T) {
 	base := time.Now().UTC().Add(time.Hour).Truncate(time.Second)
+	resultsVisible := false
 	var got repository.CreateEventParams
 	store := storeStub{
 		getUser: func(context.Context, string) (domain.User, error) {
@@ -55,12 +56,16 @@ func TestCreateEvent(t *testing.T) {
 	result, err := service.CreateEvent(context.Background(), "user-id", CreateEventInput{
 		Title: " Event ", TimeZone: "Asia/Tokyo", WindowStartAt: base,
 		WindowEndAt: base.Add(2 * time.Hour), DurationMinutes: 60,
+		ResultsVisibleToParticipants: &resultsVisible,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if got.Title != "Event" || got.OrganizerName != "Organizer" || len(got.InviteTokenHash) != 64 {
 		t.Errorf("params = %#v", got)
+	}
+	if got.ResultsVisibleToParticipants == nil || *got.ResultsVisibleToParticipants {
+		t.Errorf("results visibility = %v, want false", got.ResultsVisibleToParticipants)
 	}
 	if result.InviteToken == "" || result.InviteURL != "http://localhost:3000/invitations/"+result.InviteToken {
 		t.Errorf("invite result = %#v", result)
