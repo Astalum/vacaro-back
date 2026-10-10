@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/astalum/vacaro-back/internal/domain"
+	googleclient "github.com/astalum/vacaro-back/internal/google"
 	"github.com/astalum/vacaro-back/internal/repository"
 )
 
@@ -139,5 +140,49 @@ func TestConfirmGroupAllowsConfirmedEvent(t *testing.T) {
 	}
 	if !called {
 		t.Fatal("ConfirmGroup() did not call store")
+	}
+}
+
+func TestConfirmGroupSyncsOnlyGroupMemberCalendar(t *testing.T) {
+	base := time.Date(2026, 10, 10, 2, 0, 0, 0, time.UTC)
+	event := domain.Event{
+		ID: "event-1", CreatedByUserID: "owner", Title: "面談", TimeZone: "Asia/Tokyo",
+		Status: "open", SchedulingMode: "groups", WindowStartAt: base,
+		WindowEndAt: base.Add(3 * time.Hour),
+	}
+	group := domain.SchedulingGroup{
+		ID: "group-1", Name: "営業", DurationMinutes: 30,
+		Members: []domain.Participant{{EventID: event.ID, UserID: "member-user"}},
+	}
+	store := storeStub{
+		getEventForUser: func(context.Context, string, string) (domain.Event, error) {
+			return event, nil
+		},
+		getGroup: func(context.Context, string, string, string) (domain.SchedulingGroup, error) {
+			return group, nil
+		},
+		confirmGroup: func(context.Context, string, string, string, time.Time, time.Time) (domain.SchedulingGroup, error) {
+			return group, nil
+		},
+		getGoogleCalendar: func(_ context.Context, userID string) ([]byte, []string, error) {
+			if userID != "member-user" {
+				t.Fatalf("calendar lookup user = %q", userID)
+			}
+			return []byte("sealed:refresh-token"), []string{googleclient.CalendarEventsScope}, nil
+		},
+	}
+	var gotEvent googleclient.CalendarEvent
+	provider := googleProviderStub{upsertEvent: func(_ context.Context, _ string, entry googleclient.CalendarEvent) error {
+		gotEvent = entry
+		return nil
+	}}
+	application := New(store, time.Hour, "https://vacaro.example")
+	application.ConfigureGoogle(provider, tokenBoxStub{}, time.Hour)
+
+	if _, err := application.ConfirmGroup(context.Background(), event.ID, group.ID, "owner", base, base.Add(30*time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	if gotEvent.Summary != "面談（営業）" || gotEvent.ID != confirmationCalendarEventID(event.ID, group.ID) {
+		t.Fatalf("calendar event = %#v", gotEvent)
 	}
 }

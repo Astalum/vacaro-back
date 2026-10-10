@@ -452,6 +452,11 @@ func (s *Store) changeEventState(ctx context.Context, eventID, userID, next stri
 	if err != nil {
 		return domain.Event{}, err
 	}
+	if next == "confirmed" && startAt != nil && endAt != nil {
+		if err := s.blockConfirmedTimeInOtherEvents(ctx, tx, eventID, nil, *startAt, *endAt); err != nil {
+			return domain.Event{}, err
+		}
+	}
 	if err := tx.Commit(ctx); err != nil {
 		return domain.Event{}, err
 	}

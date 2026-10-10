@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/astalum/vacaro-back/internal/domain"
+	googleclient "github.com/astalum/vacaro-back/internal/google"
 	"github.com/astalum/vacaro-back/internal/repository"
 )
 
@@ -172,5 +173,56 @@ func TestConfirmEventValidation(t *testing.T) {
 	}
 	if _, err := service.ConfirmEvent(context.Background(), "event", "owner", base, base.Add(30*time.Minute)); err == nil {
 		t.Fatal("duration validation error = nil")
+	}
+}
+
+func TestConfirmEventSyncsConnectedParticipantCalendar(t *testing.T) {
+	base := time.Date(2026, 10, 10, 1, 15, 0, 0, time.UTC)
+	event := domain.Event{
+		ID: "event-1", CreatedByUserID: "owner", Title: "定例会", TimeZone: "Asia/Tokyo",
+		WindowStartAt: base, WindowEndAt: base.Add(4 * time.Hour), DurationMinutes: 60,
+	}
+	store := storeStub{
+		getEventForUser: func(context.Context, string, string) (domain.Event, error) {
+			return event, nil
+		},
+		confirmEvent: func(context.Context, string, string, time.Time, time.Time) (domain.Event, error) {
+			confirmed := event
+			confirmed.Status = "confirmed"
+			return confirmed, nil
+		},
+		listParticipants: func(context.Context, string, string) ([]domain.Participant, error) {
+			return []domain.Participant{
+				{EventID: event.ID, UserID: "connected-user"},
+				{EventID: event.ID, UserID: "legacy-user"},
+			}, nil
+		},
+		getGoogleCalendar: func(_ context.Context, userID string) ([]byte, []string, error) {
+			if userID == "connected-user" {
+				return []byte("sealed:refresh-token"), []string{googleclient.CalendarEventsScope}, nil
+			}
+			return []byte("sealed:legacy-token"), []string{"https://www.googleapis.com/auth/calendar.freebusy"}, nil
+		},
+	}
+	var gotToken string
+	var gotEvent googleclient.CalendarEvent
+	provider := googleProviderStub{upsertEvent: func(_ context.Context, token string, entry googleclient.CalendarEvent) error {
+		gotToken, gotEvent = token, entry
+		return nil
+	}}
+	application := New(store, time.Hour, "https://vacaro.example")
+	application.ConfigureGoogle(provider, tokenBoxStub{}, time.Hour)
+
+	if _, err := application.ConfirmEvent(context.Background(), event.ID, "owner", base, base.Add(time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	if gotToken != "refresh-token" || gotEvent.Summary != event.Title || gotEvent.TimeZone != event.TimeZone {
+		t.Fatalf("calendar sync = token %q, event %#v", gotToken, gotEvent)
+	}
+	if gotEvent.Description != "vacaroで確定した予定です。\nhttps://vacaro.example/events/event-1/confirmed" {
+		t.Fatalf("description = %q", gotEvent.Description)
+	}
+	if gotEvent.ID != confirmationCalendarEventID(event.ID, "") {
+		t.Fatalf("calendar event ID = %q", gotEvent.ID)
 	}
 }

@@ -135,7 +135,7 @@ func (a *API) listGoogleCalendars(w http.ResponseWriter, r *http.Request) {
 		writeAPIError(w, r, domain.ErrPermissionDenied)
 		return
 	}
-	calendars, err := a.service.ListGoogleCalendars(r.Context(), currentUserID(r))
+	options, err := a.service.ListGoogleCalendars(r.Context(), currentUserID(r))
 	if err != nil {
 		writeAPIError(w, r, err)
 		return
@@ -147,14 +147,17 @@ func (a *API) listGoogleCalendars(w http.ResponseWriter, r *http.Request) {
 		Selected        bool   `json:"selected"`
 		BackgroundColor string `json:"background_color,omitempty"`
 	}
-	items := make([]calendarResponse, len(calendars))
-	for i, calendar := range calendars {
+	items := make([]calendarResponse, len(options.Calendars))
+	for i, calendar := range options.Calendars {
 		items[i] = calendarResponse{
 			ID: calendar.ID, Summary: calendar.Summary, Primary: calendar.Primary,
 			Selected: calendar.Selected, BackgroundColor: calendar.BackgroundColor,
 		}
 	}
-	writeData(w, http.StatusOK, map[string]any{"calendars": items})
+	writeData(w, http.StatusOK, map[string]any{
+		"calendars":     items,
+		"write_enabled": options.WriteEnabled,
+	})
 }
 
 func (a *API) previewGoogleCalendarAvailability(w http.ResponseWriter, r *http.Request) {

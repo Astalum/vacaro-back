@@ -177,7 +177,14 @@ func (s *Service) ConfirmGroup(ctx context.Context, eventID, groupID, userID str
 	if len(fields) > 0 {
 		return domain.SchedulingGroup{}, &ValidationError{Fields: fields}
 	}
-	return s.store.ConfirmGroup(ctx, eventID, groupID, userID, startAt, endAt)
+	confirmed, err := s.store.ConfirmGroup(ctx, eventID, groupID, userID, startAt, endAt)
+	if err != nil {
+		return domain.SchedulingGroup{}, err
+	}
+	if s.GoogleEnabled() {
+		s.syncConfirmationCalendars(ctx, confirmed.Members, eventCalendarEntry(s.publicAppURL, event, &confirmed, startAt, endAt), eventID, groupID)
+	}
+	return confirmed, nil
 }
 
 func (s *Service) requireGroupConfirmationOwner(ctx context.Context, eventID, userID string) (domain.Event, error) {
@@ -205,7 +212,14 @@ func (s *Service) ReopenGroup(ctx context.Context, eventID, groupID, userID stri
 	if event.SchedulingMode != "groups" {
 		return domain.SchedulingGroup{}, domain.ErrGroupNotEditable
 	}
-	return s.store.ReopenGroup(ctx, eventID, groupID, userID)
+	reopened, err := s.store.ReopenGroup(ctx, eventID, groupID, userID)
+	if err != nil {
+		return domain.SchedulingGroup{}, err
+	}
+	if s.GoogleEnabled() {
+		s.deleteConfirmationCalendars(ctx, reopened.Members, confirmationCalendarEventID(eventID, groupID), eventID, groupID)
+	}
+	return reopened, nil
 }
 
 func (s *Service) requireGroupOwner(ctx context.Context, eventID, userID string) (domain.Event, error) {

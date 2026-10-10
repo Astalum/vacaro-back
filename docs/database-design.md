@@ -354,9 +354,10 @@ DB制約だけでは他テーブルの値を参照する一部のルールを表
 - ゲスト参加：`users`作成と`participants`作成
 - ゲストからGoogleユーザーへの昇格：`users`更新と`auth_accounts`作成
 - 回答更新：既存の`availability_intervals`更新と`response_status`更新
-- 全体日程確定：`events`の確定日時とステータス更新
+- 全体日程確定：`events`の確定日時・ステータス更新と、対象参加者の他の調整中イベントから確定時間を除外
 - グループ作成・メンバー一括置換：`scheduling_groups`と`scheduling_group_members`の更新
-- グループ日程確定・解除：`scheduling_groups`の確定日時と`events.status`の更新
+- グループ日程確定：`scheduling_groups`の確定日時・`events.status`の更新と、グループメンバーの他の調整中イベントから確定時間を除外
+- グループ確定解除：`scheduling_groups`の確定日時と`events.status`の更新
 
 回答更新では、対象参加者のレコードまたはイベントを`SELECT ... FOR UPDATE`でロックし、同時更新による回答消失を防ぐ。
 
@@ -374,6 +375,7 @@ Cookieには`HttpOnly`、`Secure`、`SameSite`属性を設定する。サーバ�
 - Googleの予定タイトル、説明、参加者などの不要な個人情報は保存しない。
 - FreeBusy APIなどから取得した情報を利用し、アプリ内では参加可能時間またはビジー時間との差分だけを扱う。
 - カレンダーから生成した参加可能時間を永続化する場合は、`source = 'google_calendar'`とする。
+- 確定日時は、書き込み権限を許可した参加者のメインカレンダーへ固定IDでupsertし、確定解除時に削除する。
 - OAuth Scopeは必要最小限とする。
 - Refresh Tokenは暗号化して保存し、暗号鍵はDBとは別のSecret Managerで管理する。
 - 連携解除時はGoogle側の認可を失効させ、`google_calendar_connections`を削除する。

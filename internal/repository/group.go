@@ -302,6 +302,9 @@ func (s *Store) ConfirmGroup(ctx context.Context, eventID, groupID, userID strin
 	`, eventID, status); err != nil {
 		return domain.SchedulingGroup{}, err
 	}
+	if err := s.blockConfirmedTimeInOtherEvents(ctx, tx, eventID, &groupID, startAt, endAt); err != nil {
+		return domain.SchedulingGroup{}, err
+	}
 	if err := tx.Commit(ctx); err != nil {
 		return domain.SchedulingGroup{}, err
 	}

@@ -156,10 +156,11 @@ Google OAuthの開始URLはAPIの`GET /api/v1/auth/google/start`を通常のブ�
 - 日別タイムライン上で対象参加者の参加可能時間を表示
 - 自分の回答を編集する導線
 - 主催者には、選択した候補で全体またはグループの日程を確定・変更・解除する操作を表示
+- 確定時は対象参加者の連携済みGoogleカレンダーへ予定を登録し、他の調整中イベントの同時間帯を参加不可にする旨を表示
 - 小グループが0件の場合は、候補画面の代わりにmanage画面でグループを作成する導線を表示
 - グループのメンバーが0人の場合は、候補なしとしてメンバー割り当てへの導線を表示
 
-候補は全体表示では `GET /api/v1/events/:eventId/candidates`、グループ表示では `GET /api/v1/events/:eventId/groups/:groupId/candidates` の結果を表示し、フロント側で独自再計算しない。全体表示と各グループ表示のどちらからも日時を確定できる。日時確定はresults画面のRoute Actionから対応するconfirmation APIへ送信し、成功後にローダーデータを再検証する。
+候補は全体表示では `GET /api/v1/events/:eventId/candidates`、グループ表示では `GET /api/v1/events/:eventId/groups/:groupId/candidates` の結果を表示し、フロント側で独自再計算しない。全体表示と各グループ表示のどちらからも日時を確定できる。日時確定はresults画面のRoute Actionから対応するconfirmation APIへ送信し、成功後にローダーデータを再検証する。カレンダー登録と他イベントへの反映はAPI側で処理する。
 
 ### 4.6 イベント管理 `/events/:eventId/manage`
 
@@ -193,7 +194,7 @@ manage画面では候補ランキング、詳細な回答結果、日程確定�
 - `groups`では全グループの名称、メンバー、確定した開始・終了日時
 - イベント名と説明
 - 参加者一覧
-- Googleカレンダーへ追加する導線
+- 連携済みGoogleカレンダーへ自動登録された予定の確認
 
 ## 5. ルーティング
 

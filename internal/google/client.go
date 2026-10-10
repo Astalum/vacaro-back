@@ -20,6 +20,8 @@ import (
 const (
 	calendarFreeBusyScope = "https://www.googleapis.com/auth/calendar.freebusy"
 	calendarListScope     = "https://www.googleapis.com/auth/calendar.calendarlist.readonly"
+	CalendarEventsScope   = "https://www.googleapis.com/auth/calendar.events"
+	calendarAPIBaseURL    = "https://www.googleapis.com/calendar/v3"
 )
 
 type Config struct {
@@ -48,22 +50,33 @@ type Calendar struct {
 	BackgroundColor string
 }
 
+type CalendarEvent struct {
+	ID          string
+	Summary     string
+	Description string
+	StartAt     time.Time
+	EndAt       time.Time
+	TimeZone    string
+}
+
 type Client struct {
-	login    oauth2.Config
-	calendar oauth2.Config
-	clientID string
+	login              oauth2.Config
+	calendar           oauth2.Config
+	clientID           string
+	calendarAPIBaseURL string
 }
 
 func New(config Config) *Client {
 	return &Client{
-		clientID: config.ClientID,
+		clientID:           config.ClientID,
+		calendarAPIBaseURL: calendarAPIBaseURL,
 		login: oauth2.Config{
 			ClientID: config.ClientID, ClientSecret: config.ClientSecret, RedirectURL: config.LoginRedirectURL,
 			Endpoint: googleoauth.Endpoint, Scopes: []string{"openid", "email", "profile"},
 		},
 		calendar: oauth2.Config{
 			ClientID: config.ClientID, ClientSecret: config.ClientSecret, RedirectURL: config.CalendarRedirectURL,
-			Endpoint: googleoauth.Endpoint, Scopes: []string{calendarFreeBusyScope, calendarListScope},
+			Endpoint: googleoauth.Endpoint, Scopes: []string{calendarFreeBusyScope, calendarListScope, CalendarEventsScope},
 		},
 	}
 }
@@ -113,7 +126,11 @@ func (c *Client) ExchangeCalendar(ctx context.Context, code string) (string, []s
 	if token.RefreshToken == "" {
 		return "", nil, errors.New("Google response did not contain a refresh token")
 	}
-	return token.RefreshToken, []string{calendarFreeBusyScope, calendarListScope}, nil
+	scopes := []string{calendarFreeBusyScope, calendarListScope, CalendarEventsScope}
+	if grantedScopes, ok := token.Extra("scope").(string); ok && strings.TrimSpace(grantedScopes) != "" {
+		scopes = strings.Fields(grantedScopes)
+	}
+	return token.RefreshToken, scopes, nil
 }
 
 func (c *Client) ListCalendars(ctx context.Context, refreshToken string) ([]Calendar, error) {
@@ -221,6 +238,82 @@ func (c *Client) FreeBusy(ctx context.Context, refreshToken string, calendarIDs 
 		}
 	}
 	return busy, nil
+}
+
+func (c *Client) UpsertCalendarEvent(ctx context.Context, refreshToken string, event CalendarEvent) error {
+	payload, err := json.Marshal(map[string]any{
+		"id":          event.ID,
+		"summary":     event.Summary,
+		"description": event.Description,
+		"start": map[string]string{
+			"dateTime": event.StartAt.Format(time.RFC3339),
+			"timeZone": event.TimeZone,
+		},
+		"end": map[string]string{
+			"dateTime": event.EndAt.Format(time.RFC3339),
+			"timeZone": event.TimeZone,
+		},
+	})
+	if err != nil {
+		return err
+	}
+	client := c.calendar.Client(ctx, &oauth2.Token{RefreshToken: refreshToken})
+	endpoint := c.calendarAPIBaseURL + "/calendars/primary/events?sendUpdates=none"
+	status, responseBody, err := doCalendarRequest(ctx, client, http.MethodPost, endpoint, payload)
+	if err != nil {
+		return fmt.Errorf("create Google Calendar event: %w", err)
+	}
+	if status == http.StatusConflict {
+		endpoint = c.calendarAPIBaseURL + "/calendars/primary/events/" + url.PathEscape(event.ID) + "?sendUpdates=none"
+		status, responseBody, err = doCalendarRequest(ctx, client, http.MethodPut, endpoint, payload)
+		if err != nil {
+			return fmt.Errorf("update Google Calendar event: %w", err)
+		}
+	}
+	if status < 200 || status >= 300 {
+		return fmt.Errorf("Google Calendar event upsert returned %d: %s", status, strings.TrimSpace(string(responseBody)))
+	}
+	return nil
+}
+
+func (c *Client) DeleteCalendarEvent(ctx context.Context, refreshToken, eventID string) error {
+	client := c.calendar.Client(ctx, &oauth2.Token{RefreshToken: refreshToken})
+	endpoint := c.calendarAPIBaseURL + "/calendars/primary/events/" + url.PathEscape(eventID) + "?sendUpdates=none"
+	status, responseBody, err := doCalendarRequest(ctx, client, http.MethodDelete, endpoint, nil)
+	if err != nil {
+		return fmt.Errorf("delete Google Calendar event: %w", err)
+	}
+	if status == http.StatusNotFound || status == http.StatusGone {
+		return nil
+	}
+	if status < 200 || status >= 300 {
+		return fmt.Errorf("Google Calendar event deletion returned %d: %s", status, strings.TrimSpace(string(responseBody)))
+	}
+	return nil
+}
+
+func doCalendarRequest(ctx context.Context, client *http.Client, method, endpoint string, payload []byte) (int, []byte, error) {
+	var body io.Reader
+	if payload != nil {
+		body = bytes.NewReader(payload)
+	}
+	request, err := http.NewRequestWithContext(ctx, method, endpoint, body)
+	if err != nil {
+		return 0, nil, err
+	}
+	if payload != nil {
+		request.Header.Set("Content-Type", "application/json")
+	}
+	response, err := client.Do(request)
+	if err != nil {
+		return 0, nil, err
+	}
+	defer response.Body.Close()
+	responseBody, err := io.ReadAll(io.LimitReader(response.Body, 4096))
+	if err != nil {
+		return 0, nil, err
+	}
+	return response.StatusCode, responseBody, nil
 }
 
 func (c *Client) Revoke(ctx context.Context, refreshToken string) error {

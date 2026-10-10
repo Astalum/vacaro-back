@@ -78,23 +78,31 @@ func (s *Service) DisconnectGoogleCalendar(ctx context.Context, userID string) e
 	return err
 }
 
-func (s *Service) ListGoogleCalendars(ctx context.Context, userID string) ([]googleclient.Calendar, error) {
+type GoogleCalendarOptions struct {
+	Calendars    []googleclient.Calendar
+	WriteEnabled bool
+}
+
+func (s *Service) ListGoogleCalendars(ctx context.Context, userID string) (GoogleCalendarOptions, error) {
 	if !s.GoogleEnabled() {
-		return nil, domain.ErrGoogleNotConfigured
+		return GoogleCalendarOptions{}, domain.ErrGoogleNotConfigured
 	}
-	ciphertext, _, err := s.store.GetGoogleCalendarConnection(ctx, userID)
+	ciphertext, scopes, err := s.store.GetGoogleCalendarConnection(ctx, userID)
 	if err != nil {
-		return nil, err
+		return GoogleCalendarOptions{}, err
 	}
 	plain, err := s.tokenBox.Open(ciphertext)
 	if err != nil {
-		return nil, err
+		return GoogleCalendarOptions{}, err
 	}
 	calendars, err := s.google.ListCalendars(ctx, string(plain))
 	if err != nil {
-		return nil, fmt.Errorf("%w: %v", domain.ErrOAuthFailed, err)
+		return GoogleCalendarOptions{}, fmt.Errorf("%w: %v", domain.ErrOAuthFailed, err)
 	}
-	return calendars, nil
+	return GoogleCalendarOptions{
+		Calendars:    calendars,
+		WriteEnabled: hasGoogleCalendarScope(scopes, googleclient.CalendarEventsScope),
+	}, nil
 }
 
 func (s *Service) PreviewGoogleCalendarAvailability(ctx context.Context, eventID, userID string, calendarIDs []string) ([]domain.AvailabilityInterval, error) {

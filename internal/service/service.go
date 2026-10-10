@@ -38,6 +38,8 @@ type GoogleProvider interface {
 	ExchangeCalendar(context.Context, string) (string, []string, error)
 	ListCalendars(context.Context, string) ([]googleclient.Calendar, error)
 	FreeBusy(context.Context, string, []string, time.Time, time.Time, string) ([]googleclient.BusyInterval, error)
+	UpsertCalendarEvent(context.Context, string, googleclient.CalendarEvent) error
+	DeleteCalendarEvent(context.Context, string, string) error
 	Revoke(context.Context, string) error
 }
 
@@ -493,7 +495,19 @@ func (s *Service) ConfirmEvent(ctx context.Context, eventID, userID string, star
 	if len(fields) > 0 {
 		return domain.Event{}, &ValidationError{Fields: fields}
 	}
-	return s.store.ConfirmEvent(ctx, eventID, userID, startAt, endAt)
+	confirmed, err := s.store.ConfirmEvent(ctx, eventID, userID, startAt, endAt)
+	if err != nil {
+		return domain.Event{}, err
+	}
+	if s.GoogleEnabled() {
+		participants, listErr := s.store.ListParticipants(ctx, eventID, userID)
+		if listErr != nil {
+			logCalendarSyncFailure(ctx, "list event participants", eventID, "", listErr)
+		} else {
+			s.syncConfirmationCalendars(ctx, participants, eventCalendarEntry(s.publicAppURL, event, nil, startAt, endAt), eventID, "")
+		}
+	}
+	return confirmed, nil
 }
 
 func (s *Service) ReopenEvent(ctx context.Context, eventID, userID string) (domain.Event, error) {
@@ -501,7 +515,19 @@ func (s *Service) ReopenEvent(ctx context.Context, eventID, userID string) (doma
 	if err != nil {
 		return domain.Event{}, err
 	}
-	return s.store.ReopenEvent(ctx, eventID, userID)
+	reopened, err := s.store.ReopenEvent(ctx, eventID, userID)
+	if err != nil {
+		return domain.Event{}, err
+	}
+	if s.GoogleEnabled() {
+		participants, listErr := s.store.ListParticipants(ctx, eventID, userID)
+		if listErr != nil {
+			logCalendarSyncFailure(ctx, "list event participants", eventID, "", listErr)
+		} else {
+			s.deleteConfirmationCalendars(ctx, participants, confirmationCalendarEventID(eventID, ""), eventID, "")
+		}
+	}
+	return reopened, nil
 }
 
 func (s *Service) CancelEvent(ctx context.Context, eventID, userID string) error {

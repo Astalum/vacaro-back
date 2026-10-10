@@ -16,6 +16,8 @@ type googleProviderStub struct {
 	exchangeCalendar func(context.Context, string) (string, []string, error)
 	listCalendars    func(context.Context, string) ([]googleclient.Calendar, error)
 	freeBusy         func(context.Context, string, []string, time.Time, time.Time, string) ([]googleclient.BusyInterval, error)
+	upsertEvent      func(context.Context, string, googleclient.CalendarEvent) error
+	deleteEvent      func(context.Context, string, string) error
 	revoke           func(context.Context, string) error
 }
 
@@ -36,6 +38,12 @@ func (s googleProviderStub) ListCalendars(ctx context.Context, token string) ([]
 }
 func (s googleProviderStub) FreeBusy(ctx context.Context, token string, ids []string, start, end time.Time, zone string) ([]googleclient.BusyInterval, error) {
 	return s.freeBusy(ctx, token, ids, start, end, zone)
+}
+func (s googleProviderStub) UpsertCalendarEvent(ctx context.Context, token string, event googleclient.CalendarEvent) error {
+	return s.upsertEvent(ctx, token, event)
+}
+func (s googleProviderStub) DeleteCalendarEvent(ctx context.Context, token, eventID string) error {
+	return s.deleteEvent(ctx, token, eventID)
 }
 func (s googleProviderStub) Revoke(ctx context.Context, token string) error {
 	return s.revoke(ctx, token)
@@ -107,7 +115,11 @@ func TestPreviewGoogleCalendarAvailability(t *testing.T) {
 func TestListGoogleCalendars(t *testing.T) {
 	store := storeStub{
 		getGoogleCalendar: func(context.Context, string) ([]byte, []string, error) {
-			return []byte("sealed:refresh-token"), []string{"calendar.freebusy", "calendar.calendarlist.readonly"}, nil
+			return []byte("sealed:refresh-token"), []string{
+				"https://www.googleapis.com/auth/calendar.freebusy",
+				"https://www.googleapis.com/auth/calendar.calendarlist.readonly",
+				googleclient.CalendarEventsScope,
+			}, nil
 		},
 	}
 	provider := googleProviderStub{listCalendars: func(_ context.Context, token string) ([]googleclient.Calendar, error) {
@@ -118,12 +130,12 @@ func TestListGoogleCalendars(t *testing.T) {
 	}}
 	application := New(store, time.Hour, "http://localhost")
 	application.ConfigureGoogle(provider, tokenBoxStub{}, time.Hour)
-	calendars, err := application.ListGoogleCalendars(context.Background(), "user")
+	options, err := application.ListGoogleCalendars(context.Background(), "user")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(calendars) != 1 || calendars[0].ID != "primary" || !calendars[0].Primary {
-		t.Fatalf("calendars = %#v", calendars)
+	if len(options.Calendars) != 1 || options.Calendars[0].ID != "primary" || !options.Calendars[0].Primary || !options.WriteEnabled {
+		t.Fatalf("options = %#v", options)
 	}
 }
 

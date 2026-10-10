@@ -483,6 +483,8 @@ PUT /api/v1/events/{event_id}/confirmation
 - `end_at - start_at`が`duration_minutes`と一致すること
 - 主催者のみ実行可能
 - `whole_event`と`groups`のどちらでも確定可能。`groups`では全体候補の確定日時として保存する
+- 対象参加者が参加している他の`open`イベントでは、確定時間と重なる参加可能時間を同一トランザクションで差し引く
+- Googleカレンダーの予定書き込み権限を持つ対象参加者には、確定日時をメインカレンダーへ登録する。外部APIの失敗は確定処理を巻き戻さずサーバーログへ記録する
 
 Response: `200`、`status=confirmed`のEvent。
 
@@ -612,6 +614,8 @@ PUT /api/v1/events/{event_id}/groups/{group_id}/confirmation
 - `end_at - start_at`がグループの`duration_minutes`と一致すること
 - グループに1人以上のメンバーが存在すること
 - 主催者のみ実行可能
+- グループメンバーが参加している他の`open`イベントでは、確定時間と重なる参加可能時間を同一トランザクションで差し引く
+- Googleカレンダーの予定書き込み権限を持つグループメンバーには、確定日時をメインカレンダーへ登録する
 
 Response: `200`、`data`は更新後のSchedulingGroup。全グループに確定日時が設定された場合、同一トランザクションでイベントを`confirmed`へ変更する。
 
@@ -829,7 +833,7 @@ Googleの`sub`をアカウント識別子として使用し、メールアドレ
 POST /api/v1/integrations/google-calendar
 ```
 
-Google認証済みセッションが必要。Calendar FreeBusy権限とカレンダー一覧の読み取り権限を求める認可URLを返す。
+Google認証済みセッションが必要。Calendar FreeBusy権限、カレンダー一覧の読み取り権限、確定予定の書き込み権限を求める認可URLを返す。
 
 ```json
 {
@@ -864,6 +868,7 @@ GET /api/v1/integrations/google-calendar/calendars
 ```json
 {
   "data": {
+	"write_enabled": true,
     "calendars": [
       {
         "id": "user@example.com",

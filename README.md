@@ -148,6 +148,8 @@ http://localhost:8080/api/v1/integrations/google-calendar/callback
 
 `.env`の`GOOGLE_*`と`TOKEN_ENCRYPTION_KEY`をすべて設定するとGoogle連携が有効になります。`TOKEN_ENCRYPTION_KEY`には、`SESSION_KEY`とは別に生成したBase64形式の32バイト鍵を使用してください。未設定の場合もGoogle以外のAPIは起動します。
 
+カレンダー連携では`calendar.freebusy`、`calendar.calendarlist.readonly`、`calendar.events`の権限を使用します。予定書き込み権限の追加前から接続済みのユーザーは、設定画面からGoogleカレンダーを再接続してください。
+
 ```bash
 openssl rand -base64 32
 ```
