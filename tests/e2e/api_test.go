@@ -53,8 +53,10 @@ func TestMVPFlow(t *testing.T) {
 
 	organizer := newClient(t)
 	member := newClient(t)
+	lateMember := newClient(t)
 	organizerUser := createGuest(t, organizer, baseURL, "E2E Organizer")
 	memberUser := createGuest(t, member, baseURL, "E2E Member")
+	lateMemberUser := createGuest(t, lateMember, baseURL, "E2E Late Member")
 
 	var eventID string
 	t.Cleanup(func() {
@@ -69,7 +71,7 @@ func TestMVPFlow(t *testing.T) {
 		if eventID != "" {
 			_, _ = pool.Exec(ctx, "DELETE FROM events WHERE id = $1", eventID)
 		}
-		_, _ = pool.Exec(ctx, "DELETE FROM users WHERE id = $1 OR id = $2", organizerUser.ID, memberUser.ID)
+		_, _ = pool.Exec(ctx, "DELETE FROM users WHERE id = $1 OR id = $2 OR id = $3", organizerUser.ID, memberUser.ID, lateMemberUser.ID)
 	})
 
 	start := time.Now().UTC().Add(24 * time.Hour).Truncate(time.Minute)
@@ -98,6 +100,14 @@ func TestMVPFlow(t *testing.T) {
 	if len(candidates) == 0 || candidates[0].AvailableCount != 2 {
 		t.Fatalf("unexpected candidates: %#v", candidates)
 	}
+	pastDeadline := time.Now().UTC().Add(-time.Minute)
+	doJSON[event](t, organizer, http.MethodPatch, baseURL+"/api/v1/events/"+eventID, map[string]time.Time{
+		"response_deadline_at": pastDeadline,
+	}, http.StatusOK)
+	doAPIError(t, member, http.MethodPut, baseURL+"/api/v1/events/"+eventID+"/my-availability", availability, http.StatusConflict, "response_deadline_passed")
+	doAPIError(t, lateMember, http.MethodPost, baseURL+"/api/v1/invitations/"+created.InviteToken+"/participants", map[string]string{
+		"display_name": "E2E Late Member",
+	}, http.StatusConflict, "response_deadline_passed")
 
 	confirmed := doJSON[event](t, organizer, http.MethodPut, baseURL+"/api/v1/events/"+eventID+"/confirmation", map[string]time.Time{"start_at": start, "end_at": start.Add(time.Hour)}, http.StatusOK)
 	if confirmed.Status != "confirmed" {
@@ -348,5 +358,34 @@ func doNoContent(t *testing.T, client *http.Client, method, url string) {
 	defer response.Body.Close()
 	if response.StatusCode != http.StatusNoContent {
 		t.Fatalf("%s %s status = %d, want %d", method, url, response.StatusCode, http.StatusNoContent)
+	}
+}
+
+func doAPIError(t *testing.T, client *http.Client, method, url string, body any, wantStatus int, wantCode string) {
+	t.Helper()
+	payload, err := json.Marshal(body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request, err := http.NewRequestWithContext(context.Background(), method, url, bytes.NewReader(payload))
+	if err != nil {
+		t.Fatal(err)
+	}
+	request.Header.Set("Content-Type", "application/json")
+	response, err := client.Do(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer response.Body.Close()
+	var result struct {
+		Error struct {
+			Code string `json:"code"`
+		} `json:"error"`
+	}
+	if err := json.NewDecoder(response.Body).Decode(&result); err != nil {
+		t.Fatalf("decode error response: %v", err)
+	}
+	if response.StatusCode != wantStatus || result.Error.Code != wantCode {
+		t.Fatalf("%s %s = status %d code %q, want status %d code %q", method, url, response.StatusCode, result.Error.Code, wantStatus, wantCode)
 	}
 }

@@ -49,6 +49,8 @@ func writeAPIError(w http.ResponseWriter, r *http.Request, err error) {
 		status, code, message = http.StatusConflict, "already_joined", "既にイベントへ参加しています"
 	case errors.Is(err, domain.ErrEventNotOpen):
 		status, code, message = http.StatusConflict, "event_not_open", "イベントは受付中ではありません"
+	case errors.Is(err, domain.ErrResponseDeadlinePassed):
+		status, code, message = http.StatusConflict, "response_deadline_passed", "回答期限を過ぎています"
 	case errors.Is(err, domain.ErrOrganizerCannotLeave):
 		status, code, message = http.StatusConflict, "organizer_cannot_leave", "主催者はイベントから退出できません"
 	case errors.Is(err, domain.ErrInvalidTransition):

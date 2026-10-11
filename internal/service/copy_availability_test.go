@@ -82,3 +82,22 @@ func TestCopyOwnAvailabilityRejectsNoOverlappingAnswer(t *testing.T) {
 		t.Fatalf("CopyOwnAvailability() error = %v", err)
 	}
 }
+
+func TestCopyOwnAvailabilityRejectsPassedResponseDeadline(t *testing.T) {
+	deadline := time.Now().UTC().Add(-time.Minute)
+	store := storeStub{
+		hasGoogleAccount: func(context.Context, string) (bool, error) { return true, nil },
+		getOwnAvailability: func(context.Context, string, string) ([]domain.AvailabilityInterval, string, error) {
+			return nil, "submitted", nil
+		},
+		getEventForUser: func(context.Context, string, string) (domain.Event, error) {
+			return domain.Event{Status: "open", ResponseDeadlineAt: &deadline}, nil
+		},
+	}
+	application := New(store, time.Hour, "")
+
+	_, err := application.CopyOwnAvailability(context.Background(), "target", "source", "user")
+	if !errors.Is(err, domain.ErrResponseDeadlinePassed) {
+		t.Fatalf("CopyOwnAvailability() error = %v", err)
+	}
+}

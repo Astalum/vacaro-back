@@ -36,6 +36,10 @@ func TestStoreIntegration(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	lateMember, err := store.CreateGuest(ctx, "Repository Late Member", time.Now().UTC().Add(time.Hour))
+	if err != nil {
+		t.Fatal(err)
+	}
 	var eventID string
 	t.Cleanup(func() {
 		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -46,7 +50,7 @@ func TestStoreIntegration(t *testing.T) {
 				return
 			}
 		}
-		if _, err := pool.Exec(cleanupCtx, "DELETE FROM users WHERE id = $1 OR id = $2", owner.ID, member.ID); err != nil {
+		if _, err := pool.Exec(cleanupCtx, "DELETE FROM users WHERE id = $1 OR id = $2 OR id = $3", owner.ID, member.ID, lateMember.ID); err != nil {
 			t.Errorf("cleanup users: %v", err)
 		}
 	})
@@ -134,6 +138,21 @@ func TestStoreIntegration(t *testing.T) {
 	}
 	if availability, err := store.ListAvailability(ctx, event.ID, owner.ID); err != nil || len(availability) != 2 {
 		t.Fatalf("ListAvailability() = %#v, %v", availability, err)
+	}
+	pastDeadline := time.Now().UTC().Add(-time.Minute)
+	event, err = store.UpdateEvent(ctx, UpdateEventParams{
+		EventID: event.ID, UserID: owner.ID, Title: event.Title, Description: event.Description,
+		TimeZone: event.TimeZone, WindowStartAt: event.WindowStartAt, WindowEndAt: event.WindowEndAt,
+		DurationMinutes: event.DurationMinutes, SchedulingMode: event.SchedulingMode, ResponseDeadlineAt: &pastDeadline,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.ReplaceAvailability(ctx, event.ID, member.ID, []domain.AvailabilityInterval{interval}); !errors.Is(err, domain.ErrResponseDeadlinePassed) {
+		t.Fatalf("ReplaceAvailability() after deadline error = %v", err)
+	}
+	if _, err := store.JoinEvent(ctx, rotatedTokenHash, lateMember.ID, "Late Member"); !errors.Is(err, domain.ErrResponseDeadlinePassed) {
+		t.Fatalf("JoinEvent() after deadline error = %v", err)
 	}
 
 	confirmed, err := store.ConfirmEvent(ctx, event.ID, owner.ID, start, start.Add(time.Hour))

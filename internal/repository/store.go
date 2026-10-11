@@ -252,13 +252,18 @@ func (s *Store) JoinEvent(ctx context.Context, tokenHash, userID, displayName st
 	defer func() { _ = tx.Rollback(ctx) }()
 
 	var eventID, status string
+	var responseDeadlineAt *time.Time
 	if err := tx.QueryRow(ctx, `
-		SELECT id::text, status FROM events WHERE invite_token_hash = $1 FOR UPDATE
-	`, tokenHash).Scan(&eventID, &status); err != nil {
+			SELECT id::text, status, response_deadline_at
+			FROM events WHERE invite_token_hash = $1 FOR UPDATE
+		`, tokenHash).Scan(&eventID, &status, &responseDeadlineAt); err != nil {
 		return domain.Participant{}, translateNotFound(err)
 	}
 	if status != "open" {
 		return domain.Participant{}, domain.ErrEventNotOpen
+	}
+	if responseDeadlineAt != nil && !time.Now().UTC().Before(*responseDeadlineAt) {
+		return domain.Participant{}, domain.ErrResponseDeadlinePassed
 	}
 
 	row := tx.QueryRow(ctx, `
@@ -336,17 +341,21 @@ func (s *Store) ReplaceAvailability(ctx context.Context, eventID, userID string,
 
 	var participantID, status string
 	var windowStart, windowEnd time.Time
+	var responseDeadlineAt *time.Time
 	if err := tx.QueryRow(ctx, `
-		SELECT p.id::text, e.status, e.window_start_at, e.window_end_at
+			SELECT p.id::text, e.status, e.window_start_at, e.window_end_at, e.response_deadline_at
 		FROM participants p
 		JOIN events e ON e.id = p.event_id
 		WHERE p.event_id = $1 AND p.user_id = $2
 		FOR UPDATE OF p, e
-	`, eventID, userID).Scan(&participantID, &status, &windowStart, &windowEnd); err != nil {
+		`, eventID, userID).Scan(&participantID, &status, &windowStart, &windowEnd, &responseDeadlineAt); err != nil {
 		return nil, translateNotFound(err)
 	}
 	if status != "open" {
 		return nil, domain.ErrEventNotOpen
+	}
+	if responseDeadlineAt != nil && !time.Now().UTC().Before(*responseDeadlineAt) {
+		return nil, domain.ErrResponseDeadlinePassed
 	}
 	for _, interval := range intervals {
 		if interval.StartAt.Before(windowStart) || interval.EndAt.After(windowEnd) {

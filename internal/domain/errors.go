@@ -7,6 +7,7 @@ var (
 	ErrPermissionDenied        = errors.New("permission denied")
 	ErrAlreadyJoined           = errors.New("already joined")
 	ErrEventNotOpen            = errors.New("event is not open")
+	ErrResponseDeadlinePassed  = errors.New("response deadline has passed")
 	ErrOrganizerCannotLeave    = errors.New("organizer cannot leave")
 	ErrInvalidTransition       = errors.New("invalid event transition")
 	ErrGroupNotEditable        = errors.New("group is not editable")

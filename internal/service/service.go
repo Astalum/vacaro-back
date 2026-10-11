@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"sort"
 	"strings"
 	"time"
@@ -341,7 +342,15 @@ func (s *Service) JoinEvent(ctx context.Context, token, userID, displayName stri
 	if err := validateDisplayName(displayName); err != nil {
 		return domain.Participant{}, err
 	}
-	return s.store.JoinEvent(ctx, hashToken(token), userID, displayName)
+	tokenHash := hashToken(token)
+	if event, err := s.store.GetEventByInviteHash(ctx, tokenHash); err == nil {
+		if err := requireEventAcceptingResponses(event, time.Now().UTC()); err != nil {
+			return domain.Participant{}, err
+		}
+	} else if !errors.Is(err, domain.ErrNotFound) {
+		return domain.Participant{}, err
+	}
+	return s.store.JoinEvent(ctx, tokenHash, userID, displayName)
 }
 
 func (s *Service) ListParticipants(ctx context.Context, eventID, userID string) ([]domain.Participant, error) {
@@ -362,8 +371,8 @@ func (s *Service) ReplaceAvailability(ctx context.Context, eventID, userID strin
 	if err != nil {
 		return nil, err
 	}
-	if event.Status != "open" {
-		return nil, domain.ErrEventNotOpen
+	if err := requireEventAcceptingResponses(event, time.Now().UTC()); err != nil {
+		return nil, err
 	}
 	sort.Slice(inputs, func(i, j int) bool { return inputs[i].StartAt.Before(inputs[j].StartAt) })
 	merged := make([]domain.AvailabilityInterval, 0, len(inputs))
@@ -421,8 +430,8 @@ func (s *Service) CopyOwnAvailability(ctx context.Context, targetEventID, source
 	if err != nil {
 		return nil, err
 	}
-	if targetEvent.Status != "open" {
-		return nil, domain.ErrEventNotOpen
+	if err := requireEventAcceptingResponses(targetEvent, time.Now().UTC()); err != nil {
+		return nil, err
 	}
 	targetIntervals, _, err := s.store.GetOwnAvailability(ctx, targetEventID, userID)
 	if err != nil {
@@ -499,6 +508,16 @@ func (s *Service) Candidates(ctx context.Context, eventID, userID string, limit 
 
 func canViewResults(event domain.Event, userID string) bool {
 	return event.CreatedByUserID == userID || event.ResultsVisibleToParticipants
+}
+
+func requireEventAcceptingResponses(event domain.Event, now time.Time) error {
+	if event.Status != "open" {
+		return domain.ErrEventNotOpen
+	}
+	if event.ResponseDeadlineAt != nil && !now.Before(*event.ResponseDeadlineAt) {
+		return domain.ErrResponseDeadlinePassed
+	}
+	return nil
 }
 
 func (s *Service) ConfirmEvent(ctx context.Context, eventID, userID string, startAt, endAt time.Time) (domain.Event, error) {

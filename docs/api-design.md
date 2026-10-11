@@ -111,6 +111,7 @@ Cookie属性：
 | `404` | `resource_not_found` | リソースなし、イベントに未参加、無効な招待トークン |
 | `409` | `already_joined` | 同一イベントへ参加済み |
 | `409` | `event_not_open` | 受付中でないイベントへの更新 |
+| `409` | `response_deadline_passed` | 回答期限後の参加・回答更新 |
 | `409` | `organizer_cannot_leave` | 主催者によるイベント退出 |
 | `409` | `invalid_event_transition` | 許可されていない状態遷移 |
 | `409` | `group_not_editable` | 確定済みイベントなど、グループ編成を変更できない状態 |
@@ -649,6 +650,7 @@ POST /api/v1/invitations/{invite_token}/participants
 
 - `display_name`: 前後空白を除いて1～100文字
 - イベントは`open`であること
+- 回答期限が設定されている場合、現在日時が期限より前であること
 - 同じユーザーが参加済みの場合は`409 already_joined`
 - Response: `201`、`data`は作成されたParticipant
 
@@ -706,6 +708,7 @@ PUT /api/v1/events/{event_id}/my-availability
 
 - 最大100区間
 - イベントは`open`であること
+- 回答期限が設定されている場合、現在日時が期限より前であること
 - 各区間はイベント期間内かつ`start_at < end_at`
 - 重複区間は`422`
 - 隣接区間は統合
@@ -737,7 +740,7 @@ POST /api/v1/events/{target_event_id}/my-availability/copy
 - コピー元とコピー先の両方に参加していること
 - コピー元とコピー先は別イベントであること
 - コピー元の回答が`submitted`であること
-- コピー先は`open`であること
+- コピー先は`open`かつ回答期限前であること
 - コピー先期間と重なる絶対日時だけを切り取ってコピー
 - コピー先の既存回答は維持し、重複・隣接区間を統合
 - コピー元に区間があるが重なる区間がない場合は`422`
@@ -934,7 +937,9 @@ stateDiagram-v2
 
 | 現在 | 操作 | 結果 |
 |---|---|---|
-| `open` | 参加・回答・内容更新 | 許可 |
+| `open`、回答期限前または期限なし | 参加・回答・内容更新 | 許可 |
+| `open`、回答期限到達後 | 参加・回答 | `409 response_deadline_passed` |
+| `open`、回答期限到達後 | 主催者による内容更新・確定・取消 | 許可 |
 | `open` | `whole_event`の全体日時を確定 | `confirmed` |
 | `open` | `groups`の一部グループを確定 | `open`のまま |
 | `open` | `groups`の全グループを確定 | `confirmed` |

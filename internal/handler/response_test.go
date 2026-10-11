@@ -61,6 +61,7 @@ func TestWriteAPIError(t *testing.T) {
 		{name: "permission", err: domain.ErrPermissionDenied, wantStatus: 403, wantCode: "permission_denied"},
 		{name: "already joined", err: domain.ErrAlreadyJoined, wantStatus: 409, wantCode: "already_joined"},
 		{name: "closed", err: domain.ErrEventNotOpen, wantStatus: 409, wantCode: "event_not_open"},
+		{name: "response deadline passed", err: domain.ErrResponseDeadlinePassed, wantStatus: 409, wantCode: "response_deadline_passed"},
 		{name: "organizer leave", err: domain.ErrOrganizerCannotLeave, wantStatus: 409, wantCode: "organizer_cannot_leave"},
 		{name: "transition", err: domain.ErrInvalidTransition, wantStatus: 409, wantCode: "invalid_event_transition"},
 		{name: "group not editable", err: domain.ErrGroupNotEditable, wantStatus: 409, wantCode: "group_not_editable"},
