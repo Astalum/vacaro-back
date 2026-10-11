@@ -328,6 +328,7 @@ func doJSON[T any](t *testing.T, client *http.Client, method, url string, body a
 	if body != nil {
 		request.Header.Set("Content-Type", "application/json")
 	}
+	addUnsafeRequestHeaders(request)
 	response, err := client.Do(request)
 	if err != nil {
 		t.Fatal(err)
@@ -351,6 +352,7 @@ func doNoContent(t *testing.T, client *http.Client, method, url string) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	addUnsafeRequestHeaders(request)
 	response, err := client.Do(request)
 	if err != nil {
 		t.Fatal(err)
@@ -372,6 +374,7 @@ func doAPIError(t *testing.T, client *http.Client, method, url string, body any,
 		t.Fatal(err)
 	}
 	request.Header.Set("Content-Type", "application/json")
+	addUnsafeRequestHeaders(request)
 	response, err := client.Do(request)
 	if err != nil {
 		t.Fatal(err)
@@ -388,4 +391,13 @@ func doAPIError(t *testing.T, client *http.Client, method, url string, body any,
 	if response.StatusCode != wantStatus || result.Error.Code != wantCode {
 		t.Fatalf("%s %s = status %d code %q, want status %d code %q", method, url, response.StatusCode, result.Error.Code, wantStatus, wantCode)
 	}
+}
+
+func addUnsafeRequestHeaders(request *http.Request) {
+	switch request.Method {
+	case http.MethodGet, http.MethodHead, http.MethodOptions:
+		return
+	}
+	request.Header.Set("Origin", request.URL.Scheme+"://"+request.URL.Host)
+	request.Header.Set("X-Vacaro-CSRF", "same-origin")
 }

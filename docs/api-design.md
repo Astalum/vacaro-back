@@ -7,7 +7,7 @@
 | 対象API | vacaro-back HTTP API |
 | APIバージョン | v1 |
 | ベースパス | `/api/v1` |
-| 仕様更新日 | 2026-09-12 |
+| 仕様更新日 | 2026-10-12 |
 | 実装 | Go `net/http` |
 | 認証 | 暗号化されたHttpOnly Cookie |
 
@@ -59,11 +59,23 @@ Cookie属性：
 | Google認証 | `auth_accounts`に現在ユーザーのGoogleアカウントが存在 |
 | Calendar連携 | Google認証済みでRefresh Tokenを保存済み |
 
-### 2.3 リクエストID
+### 2.3 Origin検証・CSRF対策・レート制限
+
+ブラウザからunsafeメソッド（`POST`、`PUT`、`PATCH`、`DELETE`など）で`/api/v1`へアクセスする場合、次のヘッダーを必須とする。
+
+```http
+X-Vacaro-CSRF: same-origin
+```
+
+サーバーはこの専用ヘッダーに加えて`Sec-Fetch-Site`および`Origin`を検証し、同一Originまたは`ALLOWED_ORIGINS`に設定されたOrigin以外からのunsafeリクエストを`403 csrf_validation_failed`で拒否する。通常のクロスオリジンHTMLフォームは専用ヘッダーを付与できず、CORSも有効化しない。非ブラウザクライアントもunsafeリクエストでは専用ヘッダーを明示する。
+
+`/api/v1`はクライアントIP単位のトークンバケット方式レート制限を適用する。既定値は1分あたり120リクエストで、超過時は`429 rate_limit_exceeded`と秒数形式の`Retry-After`を返す。`/health`と`/ready`は制限対象外とする。
+
+### 2.4 リクエストID
 
 すべてのレスポンスに`X-Request-ID`を付ける。クライアントが128文字以下の`X-Request-ID`を送った場合はその値を引き継ぎ、それ以外はサーバーが生成する。
 
-### 2.4 成功レスポンス
+### 2.5 成功レスポンス
 
 通常の成功レスポンス：
 
@@ -84,7 +96,7 @@ Cookie属性：
 
 返却データがない場合は`204 No Content`とし、ボディを返さない。ヘルスチェックとOAuthリダイレクトはこの形式の例外とする。
 
-### 2.5 エラーレスポンス
+### 2.6 エラーレスポンス
 
 ```json
 {
@@ -108,6 +120,7 @@ Cookie属性：
 | `401` | `authentication_required` | セッションなし、改ざん、期限切れ |
 | `403` | `permission_denied` | 主催者限定操作などの権限不足 |
 | `403` | `google_authentication_required` | 回答コピーでGoogle認証がない |
+| `403` | `csrf_validation_failed` | unsafeリクエストのOriginまたは専用ヘッダーが不正 |
 | `404` | `resource_not_found` | リソースなし、イベントに未参加、無効な招待トークン |
 | `409` | `already_joined` | 同一イベントへ参加済み |
 | `409` | `event_not_open` | 受付中でないイベントへの更新 |
@@ -120,6 +133,7 @@ Cookie属性：
 | `409` | `calendar_write_permission_required` | Googleカレンダーの予定書き込み権限がない |
 | `502` | `calendar_sync_failed` | Googleカレンダーへの予定登録に失敗 |
 | `422` | `validation_failed` | 業務入力規則への違反 |
+| `429` | `rate_limit_exceeded` | APIレート制限超過。`Retry-After`を返す |
 | `500` | `internal_error` | 予期しない内部エラー |
 | `503` | `google_not_configured` | サーバー側のGoogle連携設定が無効 |
 
@@ -992,9 +1006,9 @@ stateDiagram-v2
 
 ## 13. 現在の制約と本番運用上の注意
 
-- フロントエンドとAPIは同一サイト配下での利用を前提とする。
-- CORSミドルウェア、Origin検証、CSRFトークンは現時点では未実装。
-- APIレート制限は未実装。
+- フロントエンドとAPIは同一サイト配下での利用を前提とし、CORSは有効化しない。unsafeリクエストにはOrigin検証と`X-Vacaro-CSRF`ヘッダー検証を適用する。
+- APIレート制限は各APIプロセスのメモリ内でクライアントIPごとに管理する。複数インスタンス全体で厳密な制限が必要な場合は、共有ストアまたはエッジでも制限する。
+- `X-Forwarded-For`と`X-Real-IP`は、直接接続元が`TRUSTED_PROXY_CIDRS`に含まれる場合だけ参照する。本番プロキシのCIDRを過不足なく設定する。
 - サーバー側セッションテーブルはなく、Cookieの個別即時失効や端末別管理は行わない。
 - イベントIDなどのUUID形式をHandler層で事前検証していないため、不正形式へのエラー整形は今後の改善対象。
 - 未定義パスの`404`と許可されていないHTTPメソッドの`405`は、現時点ではGo標準Muxのプレーンテキスト応答となる。

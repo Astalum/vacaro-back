@@ -104,6 +104,14 @@ docker run --rm -p 8080:8080 \
 
 本番環境では`.env.example`の`SESSION_KEY`を使用せず、暗号学的に安全な32バイト値をBase64エンコードしてSecret Managerなどから設定してください。
 
+### ブラウザ保護とレート制限
+
+状態を変更するAPIリクエストには`X-Vacaro-CSRF: same-origin`が必要です。ブラウザ向けフロントエンドはこのヘッダーを自動送信します。APIはさらに`Sec-Fetch-Site`と`Origin`を検証し、`ALLOWED_ORIGINS`（未指定時は`PUBLIC_APP_URL`のOrigin）以外からのunsafeリクエストを拒否します。CORSは有効化しておらず、フロントエンドとAPIを同一サイト配下で提供する前提です。
+
+`/api/v1`にはクライアントIP単位のトークンバケット方式レート制限が適用されます。既定値は1分あたり120リクエストで、`API_RATE_LIMIT_REQUESTS`と`API_RATE_LIMIT_WINDOW`から変更できます。制限超過時は`429`と`Retry-After`を返します。
+
+リバースプロキシ経由で実クライアントIPを利用する場合だけ、APIへ直接接続するプロキシのネットワークを`TRUSTED_PROXY_CIDRS`へCIDR形式で設定してください。未設定時は偽装可能な`X-Forwarded-For`と`X-Real-IP`を無視します。複数APIインスタンスで厳密な全体制限が必要な場合は、ロードバランサーや共有ストア側でもレート制限を設定してください。
+
 ## ヘルスチェック
 
 - `GET /health`: APIプロセスが動作しているか確認するLivenessチェック

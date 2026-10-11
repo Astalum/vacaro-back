@@ -34,6 +34,14 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("load configuration: %w", err)
 	}
+	csrfProtection, err := appmiddleware.NewCSRFProtection(cfg.Security.TrustedOrigins)
+	if err != nil {
+		return fmt.Errorf("configure CSRF protection: %w", err)
+	}
+	rateLimit, err := appmiddleware.NewRateLimit(cfg.Security.RateLimitRequests, cfg.Security.RateLimitWindow, cfg.Security.TrustedProxyCIDRs)
+	if err != nil {
+		return fmt.Errorf("configure API rate limit: %w", err)
+	}
 
 	connectCtx, cancelConnect := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancelConnect()
@@ -76,7 +84,7 @@ func run() error {
 
 	server := &http.Server{
 		Addr:              ":" + cfg.Port,
-		Handler:           appmiddleware.Chain(mux, appmiddleware.RequestID, appmiddleware.AccessLog, appmiddleware.Recover),
+		Handler:           appmiddleware.Chain(mux, appmiddleware.RequestID, appmiddleware.AccessLog, appmiddleware.Recover, rateLimit, csrfProtection),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       15 * time.Second,
 		WriteTimeout:      30 * time.Second,
