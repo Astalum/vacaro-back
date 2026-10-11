@@ -15,6 +15,8 @@ var (
 	ErrDuplicateGroupName      = errors.New("duplicate group name")
 	ErrGoogleNotConfigured     = errors.New("Google integration is not configured")
 	ErrCalendarNotConnected    = errors.New("Google Calendar is not connected")
+	ErrCalendarWritePermission = errors.New("Google Calendar write permission is required")
+	ErrCalendarSyncFailed      = errors.New("Google Calendar sync failed")
 	ErrOAuthFailed             = errors.New("OAuth flow failed")
 	ErrGoogleAuthRequired      = errors.New("Google authentication is required")
 )

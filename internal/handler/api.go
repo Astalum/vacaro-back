@@ -41,6 +41,8 @@ func (a *API) Register(mux *http.ServeMux) {
 	mux.Handle("POST /api/v1/events/{event_id}/invite-token", authenticated(a.rotateInviteToken))
 	mux.Handle("PUT /api/v1/events/{event_id}/confirmation", authenticated(a.confirmEvent))
 	mux.Handle("DELETE /api/v1/events/{event_id}/confirmation", authenticated(a.reopenEvent))
+	mux.Handle("GET /api/v1/events/{event_id}/confirmation-calendar", authenticated(a.getConfirmationCalendar))
+	mux.Handle("POST /api/v1/events/{event_id}/confirmation-calendar", authenticated(a.syncConfirmationCalendar))
 	mux.Handle("GET /api/v1/events/{event_id}/groups", authenticated(a.listGroups))
 	mux.Handle("POST /api/v1/events/{event_id}/groups", authenticated(a.createGroup))
 	mux.Handle("GET /api/v1/events/{event_id}/groups/{group_id}", authenticated(a.getGroup))

@@ -159,6 +159,25 @@ func TestStoreIntegration(t *testing.T) {
 	if err != nil || confirmed.Status != "confirmed" {
 		t.Fatalf("ConfirmEvent() = %#v, %v", confirmed, err)
 	}
+	calendarSync, err := store.UpsertConfirmationCalendarSync(ctx, event.ID, nil, owner.ID, "failed")
+	if err != nil || calendarSync.Status != "failed" || calendarSync.GroupID != nil {
+		t.Fatalf("UpsertConfirmationCalendarSync() = %#v, %v", calendarSync, err)
+	}
+	calendarSync, err = store.UpsertConfirmationCalendarSync(ctx, event.ID, nil, owner.ID, "synced")
+	if err != nil || calendarSync.Status != "synced" {
+		t.Fatalf("UpsertConfirmationCalendarSync() update = %#v, %v", calendarSync, err)
+	}
+	calendarSyncs, err := store.ListConfirmationCalendarSyncs(ctx, event.ID, owner.ID)
+	if err != nil || len(calendarSyncs) != 1 || calendarSyncs[0].Status != "synced" {
+		t.Fatalf("ListConfirmationCalendarSyncs() = %#v, %v", calendarSyncs, err)
+	}
+	if err := store.ClearConfirmationCalendarSync(ctx, event.ID, nil); err != nil {
+		t.Fatal(err)
+	}
+	calendarSyncs, err = store.ListConfirmationCalendarSyncs(ctx, event.ID, owner.ID)
+	if err != nil || len(calendarSyncs) != 0 {
+		t.Fatalf("calendar syncs after clear = %#v, %v", calendarSyncs, err)
+	}
 	reopened, err := store.ReopenEvent(ctx, event.ID, owner.ID)
 	if err != nil || reopened.Status != "open" {
 		t.Fatalf("ReopenEvent() = %#v, %v", reopened, err)

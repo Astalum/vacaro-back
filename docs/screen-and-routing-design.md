@@ -101,6 +101,14 @@ vacaroは、主催者が候補枠を事前に列挙する日程調整サービ�
 
 Google OAuthの開始URLはAPIの`GET /api/v1/auth/google/start`を通常のブラウザ遷移で開く。Googleカレンダー接続後は`/account?google_calendar=connected`へ戻し、接続状況を連携カード内へ反映する。独立した接続完了ポップアップは表示しない。
 
+### 4.1.2 イベント一覧 `/events`
+
+- 初回はイベント一覧APIから20件を表示
+- `meta.next_cursor`が存在する場合は「さらに読み込む」を表示
+- 追加ページは現在の一覧へ追記し、イベントIDで重複を除外
+- 追加取得に失敗した場合は表示済みイベントを維持し、同じカーソルで再試行可能にする
+- `meta.next_cursor`が`null`になった時点で追加読み込みを終了
+
 ### 4.2 作成完了 `/events/:eventId/created`
 
 - イベント概要
@@ -194,7 +202,10 @@ manage画面では候補ランキング、詳細な回答結果、日程確定�
 - `groups`では全グループの名称、メンバー、確定した開始・終了日時
 - イベント名と説明
 - 参加者一覧
-- 連携済みGoogleカレンダーへ自動登録された予定の確認
+- グループ調整では、グループごとに日時が異なることの説明と各グループのメンバー名
+- 連携済みGoogleカレンダーへ自動登録された予定の成功・失敗状態
+- 自動登録に失敗した予定を現在ユーザー自身が再試行する操作
+- 未連携または予定書き込み権限がない場合は、ユーザー設定のカレンダー連携への導線
 
 ## 5. ルーティング
 
@@ -234,7 +245,7 @@ export default [
 | グループ別集計結果 | `GET /api/v1/events/:eventId/groups`、グループ別availability・candidates・confirmation API |
 | イベント管理 | `GET /api/v1/events/:eventId/participants`、グループCRUD・メンバー一括置換API |
 | イベント編集 | `PATCH /api/v1/events/:eventId` |
-| 確定結果 | `GET /api/v1/events/:eventId` |
+| 確定結果 | `GET /api/v1/events/:eventId`、`GET /api/v1/events/:eventId/participants`、`GET /api/v1/events/:eventId/confirmation-calendar`、`POST /api/v1/events/:eventId/confirmation-calendar` |
 
 ## 7. MVPの実装範囲
 

@@ -77,3 +77,11 @@ type Candidate struct {
 	TotalParticipantCount     int       `json:"total_participant_count"`
 	AvailableParticipantIDs   []string  `json:"available_participant_ids"`
 }
+
+type ConfirmationCalendarSync struct {
+	EventID     string     `json:"event_id,omitempty"`
+	GroupID     *string    `json:"group_id"`
+	UserID      string     `json:"-"`
+	Status      string     `json:"status"`
+	AttemptedAt *time.Time `json:"attempted_at"`
+}

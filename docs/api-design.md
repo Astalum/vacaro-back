@@ -117,6 +117,8 @@ Cookie属性：
 | `409` | `group_not_editable` | 確定済みイベントなど、グループ編成を変更できない状態 |
 | `409` | `group_confirmation_exists` | 確定済みグループがあり、モード変更やグループ変更ができない |
 | `409` | `calendar_not_connected` | Googleカレンダー未連携 |
+| `409` | `calendar_write_permission_required` | Googleカレンダーの予定書き込み権限がない |
+| `502` | `calendar_sync_failed` | Googleカレンダーへの予定登録に失敗 |
 | `422` | `validation_failed` | 業務入力規則への違反 |
 | `500` | `internal_error` | 予期しない内部エラー |
 | `503` | `google_not_configured` | サーバー側のGoogle連携設定が無効 |
@@ -241,6 +243,8 @@ Cookie属性：
 | `POST` | `/api/v1/events/{event_id}/invite-token` | 主催者 | `200` |
 | `PUT` | `/api/v1/events/{event_id}/confirmation` | 主催者 | `200` |
 | `DELETE` | `/api/v1/events/{event_id}/confirmation` | 主催者 | `200` |
+| `GET` | `/api/v1/events/{event_id}/confirmation-calendar` | 参加者 | `200` |
+| `POST` | `/api/v1/events/{event_id}/confirmation-calendar` | 参加者・Calendar連携 | `200` |
 | `GET` | `/api/v1/events/{event_id}/groups` | 参加者 | `200` |
 | `POST` | `/api/v1/events/{event_id}/groups` | 主催者 | `201` |
 | `GET` | `/api/v1/events/{event_id}/groups/{group_id}` | 参加者 | `200` |
@@ -485,7 +489,7 @@ PUT /api/v1/events/{event_id}/confirmation
 - 主催者のみ実行可能
 - `whole_event`と`groups`のどちらでも確定可能。`groups`では全体候補の確定日時として保存する
 - 対象参加者が参加している他の`open`イベントでは、確定時間と重なる参加可能時間を同一トランザクションで差し引く
-- Googleカレンダーの予定書き込み権限を持つ対象参加者には、確定日時をメインカレンダーへ登録する。外部APIの失敗は確定処理を巻き戻さずサーバーログへ記録する
+- Googleカレンダーの予定書き込み権限を持つ対象参加者には、確定日時をメインカレンダーへ登録する。外部APIの失敗は確定処理を巻き戻さず、参加者ごとの同期状態を`failed`として保存する
 
 Response: `200`、`status=confirmed`のEvent。
 
@@ -498,6 +502,40 @@ DELETE /api/v1/events/{event_id}/confirmation
 `confirmed`から`open`へ戻し、確定日時を`null`にする。Response: `200`、更新後のEvent。
 
 `whole_event`と`groups`のどちらでも利用できる。小グループ個別の確定解除はグループ用エンドポイントを使用する。
+
+### 7.9 確定予定のGoogleカレンダー同期
+
+```http
+GET /api/v1/events/{event_id}/confirmation-calendar
+```
+
+現在ユーザーの連携状態と、自動登録または再試行の結果を返す。
+
+```json
+{
+  "data": {
+    "connection_status": "connected",
+    "syncs": [
+      {
+        "group_id": null,
+        "status": "synced",
+        "attempted_at": "2026-09-10T01:00:03Z"
+      }
+    ]
+  }
+}
+```
+
+`connection_status`は`connected`、`not_connected`、`write_permission_required`、`unavailable`、`error`のいずれか。`syncs.status`は`synced`または`failed`。
+
+```http
+POST /api/v1/events/{event_id}/confirmation-calendar
+Content-Type: application/json
+
+{"group_id":null}
+```
+
+現在ユーザー自身のメインカレンダーへ、確定予定を固定IDでupsertする。全体予定は`group_id=null`、小グループ予定は対象グループIDを指定し、現在ユーザーがそのグループのメンバーである場合だけ実行できる。成功時は`200`と同期結果を返す。Google側の一時的な失敗は`502 calendar_sync_failed`として返し、状態を`failed`で保存するため再試行できる。
 
 ## 8. 小グループ
 

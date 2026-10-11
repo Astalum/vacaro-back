@@ -205,3 +205,30 @@ func (a *API) reopenEvent(w http.ResponseWriter, r *http.Request) {
 	}
 	writeData(w, http.StatusOK, event)
 }
+
+func (a *API) getConfirmationCalendar(w http.ResponseWriter, r *http.Request) {
+	status, err := a.service.GetConfirmationCalendarStatus(r.Context(), r.PathValue("event_id"), currentUserID(r))
+	if err != nil {
+		writeAPIError(w, r, err)
+		return
+	}
+	writeData(w, http.StatusOK, status)
+}
+
+func (a *API) syncConfirmationCalendar(w http.ResponseWriter, r *http.Request) {
+	var request struct {
+		GroupID *string `json:"group_id"`
+	}
+	if err := decodeJSON(w, r, &request); err != nil {
+		writeInvalidJSON(w, r)
+		return
+	}
+	result, err := a.service.SyncOwnConfirmationCalendar(
+		r.Context(), r.PathValue("event_id"), request.GroupID, currentUserID(r),
+	)
+	if err != nil {
+		writeAPIError(w, r, err)
+		return
+	}
+	writeData(w, http.StatusOK, result)
+}

@@ -39,6 +39,9 @@ erDiagram
     EVENTS ||--o{ SCHEDULING_GROUPS : divides
     SCHEDULING_GROUPS ||--o{ SCHEDULING_GROUP_MEMBERS : has
     PARTICIPANTS ||--o{ SCHEDULING_GROUP_MEMBERS : belongs_to
+    EVENTS ||--o{ CONFIRMATION_CALENDAR_SYNCS : records
+    SCHEDULING_GROUPS ||--o{ CONFIRMATION_CALENDAR_SYNCS : scopes
+    USERS ||--o{ CONFIRMATION_CALENDAR_SYNCS : owns
 
     USERS {
         uuid id PK
@@ -125,6 +128,14 @@ erDiagram
         varchar source
         timestamptz created_at
         timestamptz updated_at
+    }
+
+    CONFIRMATION_CALENDAR_SYNCS {
+        uuid event_id FK
+        uuid group_id FK
+        uuid user_id FK
+        varchar status
+        timestamptz attempted_at
     }
 ```
 
@@ -333,6 +344,28 @@ EXCLUDE USING gist (
 
 隣接する`10:00–11:00`と`11:00–12:00`は重複とみなさない。APIでは可能であれば隣接区間を`10:00–12:00`へ統合する。
 
+### 4.9 `confirmation_calendar_syncs`
+
+イベント全体または小グループの確定予定について、参加者ごとのGoogleカレンダー同期結果を保持する。Google APIの詳細なエラー内容や予定本文は保存しない。
+
+| カラム | 型 | NULL | デフォルト | 説明 |
+|---|---|---:|---|---|
+| `event_id` | `UUID` | NO | - | `events.id` |
+| `group_id` | `UUID` | YES | - | 全体予定はNULL、小グループ予定は`scheduling_groups.id` |
+| `user_id` | `UUID` | NO | - | 同期対象の`users.id` |
+| `status` | `VARCHAR(20)` | NO | - | `synced`または`failed` |
+| `attempted_at` | `TIMESTAMPTZ` | NO | `CURRENT_TIMESTAMP` | 最終同期試行日時 |
+
+制約・インデックス：
+
+- 外部キー：`event_id -> events.id ON DELETE CASCADE`
+- 外部キー：`group_id -> scheduling_groups.id ON DELETE CASCADE`
+- 外部キー：`user_id -> users.id ON DELETE CASCADE`
+- 全体予定の一意インデックス：`(event_id, user_id) WHERE group_id IS NULL`
+- グループ予定の一意インデックス：`(event_id, group_id, user_id) WHERE group_id IS NOT NULL`
+- 検索インデックス：`(user_id, event_id)`
+- 確定日時を変更または解除した場合は、該当スコープの同期結果を削除する。再確定時の自動登録または利用者の手動再試行で新しい結果を保存する。
+
 ## 5. 主要な整合性ルール
 
 DB制約だけでは他テーブルの値を参照する一部のルールを表現しにくいため、次はService層で同一トランザクション内に検証する。
@@ -377,6 +410,7 @@ Cookieには`HttpOnly`、`Secure`、`SameSite`属性を設定する。サーバ�
 - FreeBusy APIなどから取得した情報を利用し、アプリ内では参加可能時間またはビジー時間との差分だけを扱う。
 - カレンダーから生成した参加可能時間を永続化する場合は、`source = 'google_calendar'`とする。
 - 確定日時は、書き込み権限を許可した参加者のメインカレンダーへ固定IDでupsertし、確定解除時に削除する。
+- 自動登録の成功・失敗は`confirmation_calendar_syncs`へ保存し、失敗時は確定処理を取り消さず、確定結果画面から本人が再試行できるようにする。
 - OAuth Scopeは必要最小限とする。
 - Refresh Tokenは暗号化して保存し、暗号鍵はDBとは別のSecret Managerで管理する。
 - 連携解除時はGoogle側の認可を失効させ、`google_calendar_connections`を削除する。
@@ -399,6 +433,7 @@ Cookieには`HttpOnly`、`Secure`、`SameSite`属性を設定する。サーバ�
 
 1. `auth_accounts`
 2. `google_calendar_connections`
+3. `confirmation_calendar_syncs`
 
 ### 必要になってから検討するテーブル
 
@@ -421,12 +456,20 @@ db/migrations/
 ├── 000003_create_participants.down.sql
 ├── 000004_create_availability_intervals.up.sql
 ├── 000004_create_availability_intervals.down.sql
+├── 000005_create_google_integrations.up.sql
+├── 000005_create_google_integrations.down.sql
 ├── 000006_add_scheduling_mode_to_events.up.sql
 ├── 000006_add_scheduling_mode_to_events.down.sql
 ├── 000007_create_scheduling_groups.up.sql
 ├── 000007_create_scheduling_groups.down.sql
 ├── 000008_create_scheduling_group_members.up.sql
-└── 000008_create_scheduling_group_members.down.sql
+├── 000008_create_scheduling_group_members.down.sql
+├── 000009_allow_event_confirmation_in_groups.up.sql
+├── 000009_allow_event_confirmation_in_groups.down.sql
+├── 000010_add_results_visibility_to_events.up.sql
+├── 000010_add_results_visibility_to_events.down.sql
+├── 000011_create_confirmation_calendar_syncs.up.sql
+└── 000011_create_confirmation_calendar_syncs.down.sql
 ```
 
 Google連携用テーブルは、`000005_create_google_integrations`で追加する。

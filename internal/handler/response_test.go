@@ -69,6 +69,8 @@ func TestWriteAPIError(t *testing.T) {
 		{name: "duplicate group name", err: domain.ErrDuplicateGroupName, wantStatus: 422, wantCode: "validation_failed"},
 		{name: "google disabled", err: domain.ErrGoogleNotConfigured, wantStatus: 503, wantCode: "google_not_configured"},
 		{name: "calendar disconnected", err: domain.ErrCalendarNotConnected, wantStatus: 409, wantCode: "calendar_not_connected"},
+		{name: "calendar write permission", err: domain.ErrCalendarWritePermission, wantStatus: 409, wantCode: "calendar_write_permission_required"},
+		{name: "calendar sync failed", err: domain.ErrCalendarSyncFailed, wantStatus: 502, wantCode: "calendar_sync_failed"},
 		{name: "oauth failed", err: domain.ErrOAuthFailed, wantStatus: 400, wantCode: "oauth_failed"},
 		{name: "Google authentication required", err: domain.ErrGoogleAuthRequired, wantStatus: 403, wantCode: "google_authentication_required"},
 		{name: "internal", err: errors.New("boom"), wantStatus: 500, wantCode: "internal_error"},

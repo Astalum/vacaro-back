@@ -33,6 +33,9 @@ type storeStub struct {
 	getGoogleCalendar     func(context.Context, string) ([]byte, []string, error)
 	deleteGoogleCalendar  func(context.Context, string) ([]byte, error)
 	hasGoogleAccount      func(context.Context, string) (bool, error)
+	upsertCalendarSync    func(context.Context, string, *string, string, string) (domain.ConfirmationCalendarSync, error)
+	listCalendarSyncs     func(context.Context, string, string) ([]domain.ConfirmationCalendarSync, error)
+	clearCalendarSync     func(context.Context, string, *string) error
 	listGroups            func(context.Context, string, string) ([]domain.SchedulingGroup, error)
 	getGroup              func(context.Context, string, string, string) (domain.SchedulingGroup, error)
 	createGroup           func(context.Context, repository.CreateGroupParams) (domain.SchedulingGroup, error)
@@ -115,6 +118,24 @@ func (s storeStub) DeleteGoogleCalendarConnection(ctx context.Context, userID st
 }
 func (s storeStub) HasGoogleAccount(ctx context.Context, userID string) (bool, error) {
 	return s.hasGoogleAccount(ctx, userID)
+}
+func (s storeStub) UpsertConfirmationCalendarSync(ctx context.Context, eventID string, groupID *string, userID, status string) (domain.ConfirmationCalendarSync, error) {
+	if s.upsertCalendarSync == nil {
+		return domain.ConfirmationCalendarSync{EventID: eventID, GroupID: groupID, UserID: userID, Status: status}, nil
+	}
+	return s.upsertCalendarSync(ctx, eventID, groupID, userID, status)
+}
+func (s storeStub) ListConfirmationCalendarSyncs(ctx context.Context, eventID, userID string) ([]domain.ConfirmationCalendarSync, error) {
+	if s.listCalendarSyncs == nil {
+		return []domain.ConfirmationCalendarSync{}, nil
+	}
+	return s.listCalendarSyncs(ctx, eventID, userID)
+}
+func (s storeStub) ClearConfirmationCalendarSync(ctx context.Context, eventID string, groupID *string) error {
+	if s.clearCalendarSync == nil {
+		return nil
+	}
+	return s.clearCalendarSync(ctx, eventID, groupID)
 }
 func (s storeStub) ListGroups(ctx context.Context, eventID, userID string) ([]domain.SchedulingGroup, error) {
 	return s.listGroups(ctx, eventID, userID)

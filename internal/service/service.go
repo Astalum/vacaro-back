@@ -78,6 +78,9 @@ type Store interface {
 	GetGoogleCalendarConnection(context.Context, string) ([]byte, []string, error)
 	DeleteGoogleCalendarConnection(context.Context, string) ([]byte, error)
 	HasGoogleAccount(context.Context, string) (bool, error)
+	UpsertConfirmationCalendarSync(context.Context, string, *string, string, string) (domain.ConfirmationCalendarSync, error)
+	ListConfirmationCalendarSyncs(context.Context, string, string) ([]domain.ConfirmationCalendarSync, error)
+	ClearConfirmationCalendarSync(context.Context, string, *string) error
 }
 
 type ValidationError struct {
@@ -546,6 +549,9 @@ func (s *Service) ConfirmEvent(ctx context.Context, eventID, userID string, star
 	if err != nil {
 		return domain.Event{}, err
 	}
+	if err := s.store.ClearConfirmationCalendarSync(ctx, eventID, nil); err != nil {
+		logCalendarSyncFailure(ctx, "clear calendar sync status", eventID, "", err)
+	}
 	if s.GoogleEnabled() {
 		participants, listErr := s.store.ListParticipants(ctx, eventID, userID)
 		if listErr != nil {
@@ -565,6 +571,9 @@ func (s *Service) ReopenEvent(ctx context.Context, eventID, userID string) (doma
 	reopened, err := s.store.ReopenEvent(ctx, eventID, userID)
 	if err != nil {
 		return domain.Event{}, err
+	}
+	if err := s.store.ClearConfirmationCalendarSync(ctx, eventID, nil); err != nil {
+		logCalendarSyncFailure(ctx, "clear calendar sync status", eventID, "", err)
 	}
 	if s.GoogleEnabled() {
 		participants, listErr := s.store.ListParticipants(ctx, eventID, userID)

@@ -187,6 +187,9 @@ func (s *Service) ConfirmGroup(ctx context.Context, eventID, groupID, userID str
 	if err != nil {
 		return domain.SchedulingGroup{}, err
 	}
+	if err := s.store.ClearConfirmationCalendarSync(ctx, eventID, &groupID); err != nil {
+		logCalendarSyncFailure(ctx, "clear calendar sync status", eventID, groupID, err)
+	}
 	if s.GoogleEnabled() {
 		s.syncConfirmationCalendars(ctx, confirmed.Members, eventCalendarEntry(s.publicAppURL, event, &confirmed, startAt, endAt), eventID, groupID)
 	}
@@ -221,6 +224,9 @@ func (s *Service) ReopenGroup(ctx context.Context, eventID, groupID, userID stri
 	reopened, err := s.store.ReopenGroup(ctx, eventID, groupID, userID)
 	if err != nil {
 		return domain.SchedulingGroup{}, err
+	}
+	if err := s.store.ClearConfirmationCalendarSync(ctx, eventID, &groupID); err != nil {
+		logCalendarSyncFailure(ctx, "clear calendar sync status", eventID, groupID, err)
 	}
 	if s.GoogleEnabled() {
 		s.deleteConfirmationCalendars(ctx, reopened.Members, confirmationCalendarEventID(eventID, groupID), eventID, groupID)
