@@ -191,13 +191,10 @@ docker compose exec -T api go test -race ./internal/...
 
 ## データベースマイグレーション
 
-マイグレーションSQLは`db/migrations`に保存します。現在のMVPスキーマは次の順番で作成されます。
-
-1. `users`
-2. `events`
-3. `participants`
-4. `availability_intervals`
-5. `auth_accounts`、`google_calendar_connections`
+マイグレーションSQLは`db/migrations`に保存します。現在のMVPスキーマは
+`000011_init_schema`で一括作成します。既存環境の適用済みversionとの互換性を
+保つため、統合後もversion 11を維持しています。今後のマイグレーションは
+`000012`から追加してください。
 
 新しいマイグレーションを追加した後は、次のコマンドで適用できます。
 

@@ -223,6 +223,7 @@ Googleカレンダーへのアクセス許可を保持する。Googleログイ�
 | `confirmed_start_at` | `TIMESTAMPTZ` | YES | - | 確定した開始日時 |
 | `confirmed_end_at` | `TIMESTAMPTZ` | YES | - | 確定した終了日時 |
 | `response_deadline_at` | `TIMESTAMPTZ` | YES | - | 回答期限 |
+| `results_visible_to_participants` | `BOOLEAN` | NO | `TRUE` | 参加者へ集計結果を公開するか |
 | `created_at` | `TIMESTAMPTZ` | NO | `CURRENT_TIMESTAMP` | 作成日時 |
 | `updated_at` | `TIMESTAMPTZ` | NO | `CURRENT_TIMESTAMP` | 更新日時 |
 
@@ -235,7 +236,6 @@ Googleカレンダーへのアクセス許可を保持する。Googleログイ�
 - `duration_minutes > 0`
 - `scheduling_mode IN ('whole_event', 'groups')`
 - 確定日時は両方NULL、または両方非NULLかつ`confirmed_start_at < confirmed_end_at`とする。
-- `scheduling_mode = groups`の場合、イベント本体の確定日時は両方NULLとする。このテーブル単独では表現しにくいためService層でも検証する。
 - インデックス：`(created_by_user_id, created_at DESC)`
 - インデックス：`(status, response_deadline_at)`
 
@@ -444,37 +444,17 @@ Cookieには`HttpOnly`、`Secure`、`SameSite`属性を設定する。サーバ�
 
 共通空き時間は、初期段階では`availability_intervals`から都度計算し、性能上の問題が確認されるまで結果テーブルを追加しない。
 
-## 10. マイグレーション予定
+## 10. マイグレーション
 
 ```text
 db/migrations/
-├── 000001_create_users.up.sql
-├── 000001_create_users.down.sql
-├── 000002_create_events.up.sql
-├── 000002_create_events.down.sql
-├── 000003_create_participants.up.sql
-├── 000003_create_participants.down.sql
-├── 000004_create_availability_intervals.up.sql
-├── 000004_create_availability_intervals.down.sql
-├── 000005_create_google_integrations.up.sql
-├── 000005_create_google_integrations.down.sql
-├── 000006_add_scheduling_mode_to_events.up.sql
-├── 000006_add_scheduling_mode_to_events.down.sql
-├── 000007_create_scheduling_groups.up.sql
-├── 000007_create_scheduling_groups.down.sql
-├── 000008_create_scheduling_group_members.up.sql
-├── 000008_create_scheduling_group_members.down.sql
-├── 000009_allow_event_confirmation_in_groups.up.sql
-├── 000009_allow_event_confirmation_in_groups.down.sql
-├── 000010_add_results_visibility_to_events.up.sql
-├── 000010_add_results_visibility_to_events.down.sql
-├── 000011_create_confirmation_calendar_syncs.up.sql
-└── 000011_create_confirmation_calendar_syncs.down.sql
+├── 000011_init_schema.up.sql
+└── 000011_init_schema.down.sql
 ```
 
-Google連携用テーブルは、`000005_create_google_integrations`で追加する。
-
-`000006_add_scheduling_mode_to_events`では既存イベントをすべて`whole_event`として移行する。既存の`duration_minutes`と確定日時はそのまま維持し、既存クライアントが`scheduling_mode`を送らないイベント作成も`whole_event`として扱う。
+初期スキーマまでの変更は`000011_init_schema`へ統合済みである。既存環境の
+`schema_migrations`との互換性を維持するためversion 11は変更せず、今後の変更は
+`000012`以降の新しいマイグレーションとして追加する。
 
 ## 11. 未確定事項
 

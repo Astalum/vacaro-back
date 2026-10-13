@@ -1,0 +1,9 @@
+DROP TABLE IF EXISTS confirmation_calendar_syncs;
+DROP TABLE IF EXISTS scheduling_group_members;
+DROP TABLE IF EXISTS scheduling_groups;
+DROP TABLE IF EXISTS google_calendar_connections;
+DROP TABLE IF EXISTS auth_accounts;
+DROP TABLE IF EXISTS availability_intervals;
+DROP TABLE IF EXISTS participants;
+DROP TABLE IF EXISTS events;
+DROP TABLE IF EXISTS users;
