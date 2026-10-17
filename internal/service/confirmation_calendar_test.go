@@ -14,7 +14,7 @@ func confirmedCalendarTestEvent() domain.Event {
 	startAt := time.Date(2026, 10, 20, 1, 0, 0, 0, time.UTC)
 	endAt := startAt.Add(time.Hour)
 	return domain.Event{
-		ID: "event-1", Title: "定例会", TimeZone: "Asia/Tokyo",
+		ID: "event-1", Title: "定例会",
 		SchedulingMode: "whole_event", Status: "confirmed",
 		ConfirmedStartAt: &startAt, ConfirmedEndAt: &endAt,
 	}

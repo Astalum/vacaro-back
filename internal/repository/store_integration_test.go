@@ -28,15 +28,15 @@ func TestStoreIntegration(t *testing.T) {
 	t.Cleanup(pool.Close)
 	store := New(pool)
 
-	owner, err := store.CreateGuest(ctx, "Repository Owner", time.Now().UTC().Add(time.Hour))
+	owner, err := store.CreateGuest(ctx, "Repository Owner", "Asia/Tokyo", time.Now().UTC().Add(time.Hour))
 	if err != nil {
 		t.Fatal(err)
 	}
-	member, err := store.CreateGuest(ctx, "Repository Member", time.Now().UTC().Add(time.Hour))
+	member, err := store.CreateGuest(ctx, "Repository Member", "Asia/Tokyo", time.Now().UTC().Add(time.Hour))
 	if err != nil {
 		t.Fatal(err)
 	}
-	lateMember, err := store.CreateGuest(ctx, "Repository Late Member", time.Now().UTC().Add(time.Hour))
+	lateMember, err := store.CreateGuest(ctx, "Repository Late Member", "Asia/Tokyo", time.Now().UTC().Add(time.Hour))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -55,9 +55,9 @@ func TestStoreIntegration(t *testing.T) {
 		}
 	})
 
-	updatedOwner, err := store.UpdateUserName(ctx, owner.ID, "Updated Owner")
+	updatedOwner, err := store.UpdateUser(ctx, owner.ID, "Updated Owner", "Asia/Tokyo")
 	if err != nil || updatedOwner.DisplayName != "Updated Owner" {
-		t.Fatalf("UpdateUserName() = %#v, %v", updatedOwner, err)
+		t.Fatalf("UpdateUser() = %#v, %v", updatedOwner, err)
 	}
 	if _, err := store.GetUser(ctx, owner.ID); err != nil {
 		t.Fatal(err)
@@ -68,7 +68,7 @@ func TestStoreIntegration(t *testing.T) {
 	rotatedTokenHash := randomHash(t)
 	event, err := store.CreateEvent(ctx, CreateEventParams{
 		CreatedByUserID: owner.ID, InviteTokenHash: initialTokenHash, Title: "Repository Event",
-		TimeZone: "Asia/Tokyo", WindowStartAt: start, WindowEndAt: start.Add(4 * time.Hour),
+		WindowStartAt: start, WindowEndAt: start.Add(4 * time.Hour),
 		DurationMinutes: 60, OrganizerName: updatedOwner.DisplayName,
 	})
 	if err != nil {
@@ -100,7 +100,7 @@ func TestStoreIntegration(t *testing.T) {
 	description := "updated"
 	event, err = store.UpdateEvent(ctx, UpdateEventParams{
 		EventID: event.ID, UserID: owner.ID, Title: "Updated Event", Description: &description,
-		TimeZone: "Asia/Tokyo", WindowStartAt: start, WindowEndAt: start.Add(4 * time.Hour), DurationMinutes: 60,
+		WindowStartAt: start, WindowEndAt: start.Add(4 * time.Hour), DurationMinutes: 60,
 	})
 	if err != nil || event.Title != "Updated Event" {
 		t.Fatalf("UpdateEvent() = %#v, %v", event, err)
@@ -142,7 +142,7 @@ func TestStoreIntegration(t *testing.T) {
 	pastDeadline := time.Now().UTC().Add(-time.Minute)
 	event, err = store.UpdateEvent(ctx, UpdateEventParams{
 		EventID: event.ID, UserID: owner.ID, Title: event.Title, Description: event.Description,
-		TimeZone: event.TimeZone, WindowStartAt: event.WindowStartAt, WindowEndAt: event.WindowEndAt,
+		WindowStartAt: event.WindowStartAt, WindowEndAt: event.WindowEndAt,
 		DurationMinutes: event.DurationMinutes, SchedulingMode: event.SchedulingMode, ResponseDeadlineAt: &pastDeadline,
 	})
 	if err != nil {
@@ -228,14 +228,14 @@ func TestGoogleStoreIntegration(t *testing.T) {
 			t.Errorf("cleanup registered user: %v", err)
 		}
 	})
-	guest, err := store.CreateGuest(ctx, "Guest", time.Now().UTC().Add(time.Hour))
+	guest, err := store.CreateGuest(ctx, "Guest", "Asia/Tokyo", time.Now().UTC().Add(time.Hour))
 	if err != nil {
 		t.Fatal(err)
 	}
 	start := time.Now().UTC().Add(24 * time.Hour).Truncate(time.Second)
 	event, err := store.CreateEvent(ctx, CreateEventParams{
 		CreatedByUserID: guest.ID, InviteTokenHash: randomHash(t), Title: "Merge Event",
-		TimeZone: "Asia/Tokyo", WindowStartAt: start, WindowEndAt: start.Add(2 * time.Hour),
+		WindowStartAt: start, WindowEndAt: start.Add(2 * time.Hour),
 		DurationMinutes: 30, OrganizerName: guest.DisplayName,
 	})
 	if err != nil {

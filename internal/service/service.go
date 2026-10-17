@@ -45,9 +45,9 @@ type GoogleProvider interface {
 }
 
 type Store interface {
-	CreateGuest(context.Context, string, time.Time) (domain.User, error)
+	CreateGuest(context.Context, string, string, time.Time) (domain.User, error)
 	GetUser(context.Context, string) (domain.User, error)
-	UpdateUserName(context.Context, string, string) (domain.User, error)
+	UpdateUser(context.Context, string, string, string) (domain.User, error)
 	CreateEvent(context.Context, repository.CreateEventParams) (domain.Event, error)
 	ListEvents(context.Context, string, string, *time.Time, *string, int) ([]domain.Event, error)
 	GetEventForUser(context.Context, string, string) (domain.Event, error)
@@ -99,30 +99,37 @@ func (s *Service) ConfigureGoogle(provider GoogleProvider, box tokenBox, registe
 	s.registeredTTL = registeredTTL
 }
 
-func (s *Service) CreateGuest(ctx context.Context, displayName string) (domain.User, error) {
+func (s *Service) CreateGuest(ctx context.Context, displayName, timeZone string) (domain.User, error) {
 	displayName = strings.TrimSpace(displayName)
+	timeZone = strings.TrimSpace(timeZone)
 	if err := validateDisplayName(displayName); err != nil {
 		return domain.User{}, err
 	}
-	return s.store.CreateGuest(ctx, displayName, time.Now().UTC().Add(s.guestTTL))
+	if err := validateTimeZone(timeZone); err != nil {
+		return domain.User{}, err
+	}
+	return s.store.CreateGuest(ctx, displayName, timeZone, time.Now().UTC().Add(s.guestTTL))
 }
 
 func (s *Service) GetUser(ctx context.Context, userID string) (domain.User, error) {
 	return s.store.GetUser(ctx, userID)
 }
 
-func (s *Service) UpdateUserName(ctx context.Context, userID, displayName string) (domain.User, error) {
+func (s *Service) UpdateUser(ctx context.Context, userID, displayName, timeZone string) (domain.User, error) {
 	displayName = strings.TrimSpace(displayName)
+	timeZone = strings.TrimSpace(timeZone)
 	if err := validateDisplayName(displayName); err != nil {
 		return domain.User{}, err
 	}
-	return s.store.UpdateUserName(ctx, userID, displayName)
+	if err := validateTimeZone(timeZone); err != nil {
+		return domain.User{}, err
+	}
+	return s.store.UpdateUser(ctx, userID, displayName, timeZone)
 }
 
 type CreateEventInput struct {
 	Title                        string
 	Description                  *string
-	TimeZone                     string
 	WindowStartAt                time.Time
 	WindowEndAt                  time.Time
 	DurationMinutes              int
@@ -152,7 +159,7 @@ func (s *Service) CreateEvent(ctx context.Context, userID string, input CreateEv
 	}
 	event, err := s.store.CreateEvent(ctx, repository.CreateEventParams{
 		CreatedByUserID: userID, InviteTokenHash: tokenHash, Title: input.Title,
-		Description: input.Description, TimeZone: input.TimeZone, WindowStartAt: input.WindowStartAt,
+		Description: input.Description, WindowStartAt: input.WindowStartAt,
 		WindowEndAt: input.WindowEndAt, DurationMinutes: input.DurationMinutes, SchedulingMode: input.SchedulingMode,
 		ResponseDeadlineAt: input.ResponseDeadlineAt, OrganizerName: user.DisplayName,
 		ResultsVisibleToParticipants: input.ResultsVisibleToParticipants,
@@ -240,7 +247,6 @@ type UpdateEventInput struct {
 	Title              *string
 	Description        *string
 	DescriptionSet     bool
-	TimeZone           *string
 	WindowStartAt      *time.Time
 	WindowEndAt        *time.Time
 	DurationMinutes    *int
@@ -261,7 +267,7 @@ func (s *Service) UpdateEvent(ctx context.Context, eventID, userID string, input
 		return domain.Event{}, domain.ErrEventNotOpen
 	}
 	merged := CreateEventInput{
-		Title: current.Title, Description: current.Description, TimeZone: current.TimeZone,
+		Title: current.Title, Description: current.Description,
 		WindowStartAt: current.WindowStartAt, WindowEndAt: current.WindowEndAt,
 		DurationMinutes: current.DurationMinutes, ResponseDeadlineAt: current.ResponseDeadlineAt,
 		SchedulingMode: current.SchedulingMode,
@@ -271,9 +277,6 @@ func (s *Service) UpdateEvent(ctx context.Context, eventID, userID string, input
 	}
 	if input.DescriptionSet {
 		merged.Description = input.Description
-	}
-	if input.TimeZone != nil {
-		merged.TimeZone = *input.TimeZone
 	}
 	if input.WindowStartAt != nil {
 		merged.WindowStartAt = *input.WindowStartAt
@@ -309,7 +312,7 @@ func (s *Service) UpdateEvent(ctx context.Context, eventID, userID string, input
 	}
 	return s.store.UpdateEvent(ctx, repository.UpdateEventParams{
 		EventID: eventID, UserID: userID, Title: merged.Title, Description: merged.Description,
-		TimeZone: merged.TimeZone, WindowStartAt: merged.WindowStartAt, WindowEndAt: merged.WindowEndAt,
+		WindowStartAt: merged.WindowStartAt, WindowEndAt: merged.WindowEndAt,
 		DurationMinutes: merged.DurationMinutes, SchedulingMode: merged.SchedulingMode,
 		ResponseDeadlineAt: merged.ResponseDeadlineAt,
 	})
@@ -592,7 +595,6 @@ func (s *Service) CancelEvent(ctx context.Context, eventID, userID string) error
 
 func normalizeEvent(input CreateEventInput) CreateEventInput {
 	input.Title = strings.TrimSpace(input.Title)
-	input.TimeZone = strings.TrimSpace(input.TimeZone)
 	input.SchedulingMode = strings.TrimSpace(input.SchedulingMode)
 	if input.SchedulingMode == "" {
 		input.SchedulingMode = "whole_event"
@@ -622,9 +624,6 @@ func validateEvent(input CreateEventInput) error {
 	if input.Description != nil && utf8.RuneCountInString(*input.Description) > 5000 {
 		fields["description"] = "5000文字以下で指定してください"
 	}
-	if _, err := time.LoadLocation(input.TimeZone); err != nil {
-		fields["time_zone"] = "有効なIANAタイムゾーンを指定してください"
-	}
 	if input.WindowStartAt.IsZero() || input.WindowEndAt.IsZero() || !input.WindowStartAt.Before(input.WindowEndAt) {
 		fields["window_end_at"] = "window_start_atより後を指定してください"
 	}
@@ -649,6 +648,13 @@ func validateEvent(input CreateEventInput) error {
 func validateDisplayName(name string) error {
 	if utf8.RuneCountInString(name) < 1 || utf8.RuneCountInString(name) > 100 {
 		return &ValidationError{Fields: map[string]string{"display_name": "1～100文字で指定してください"}}
+	}
+	return nil
+}
+
+func validateTimeZone(timeZone string) error {
+	if _, err := time.LoadLocation(timeZone); err != nil {
+		return &ValidationError{Fields: map[string]string{"time_zone": "有効なIANAタイムゾーンを指定してください"}}
 	}
 	return nil
 }

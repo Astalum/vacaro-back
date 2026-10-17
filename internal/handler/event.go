@@ -11,7 +11,6 @@ import (
 type eventRequest struct {
 	Title                        string     `json:"title"`
 	Description                  *string    `json:"description"`
-	TimeZone                     string     `json:"time_zone"`
 	WindowStartAt                time.Time  `json:"window_start_at"`
 	WindowEndAt                  time.Time  `json:"window_end_at"`
 	DurationMinutes              int        `json:"duration_minutes"`
@@ -27,7 +26,7 @@ func (a *API) createEvent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	result, err := a.service.CreateEvent(r.Context(), currentUserID(r), service.CreateEventInput{
-		Title: request.Title, Description: request.Description, TimeZone: request.TimeZone,
+		Title: request.Title, Description: request.Description,
 		WindowStartAt: request.WindowStartAt, WindowEndAt: request.WindowEndAt,
 		DurationMinutes: request.DurationMinutes, SchedulingMode: request.SchedulingMode,
 		ResponseDeadlineAt:           request.ResponseDeadlineAt,
@@ -73,7 +72,6 @@ func (a *API) updateEvent(w http.ResponseWriter, r *http.Request) {
 	var request struct {
 		Title              *string             `json:"title"`
 		Description        optional[string]    `json:"description"`
-		TimeZone           *string             `json:"time_zone"`
 		WindowStartAt      *time.Time          `json:"window_start_at"`
 		WindowEndAt        *time.Time          `json:"window_end_at"`
 		DurationMinutes    *int                `json:"duration_minutes"`
@@ -94,7 +92,7 @@ func (a *API) updateEvent(w http.ResponseWriter, r *http.Request) {
 	}
 	event, err := a.service.UpdateEvent(r.Context(), r.PathValue("event_id"), currentUserID(r), service.UpdateEventInput{
 		Title: request.Title, Description: description, DescriptionSet: request.Description.Set,
-		TimeZone: request.TimeZone, WindowStartAt: request.WindowStartAt, WindowEndAt: request.WindowEndAt,
+		WindowStartAt: request.WindowStartAt, WindowEndAt: request.WindowEndAt,
 		DurationMinutes: request.DurationMinutes, SchedulingMode: request.SchedulingMode,
 		ResponseDeadlineAt: deadline,
 		DeadlineSet:        request.ResponseDeadlineAt.Set,

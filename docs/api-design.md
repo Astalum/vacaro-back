@@ -146,6 +146,7 @@ X-Vacaro-CSRF: same-origin
   "id": "0198d540-45b8-7f91-9fa8-4d7a455b1022",
   "account_type": "guest",
   "display_name": "田中",
+  "time_zone": "Asia/Tokyo",
   "email": null,
   "guest_expires_at": "2026-09-11T03:00:00Z",
   "created_at": "2026-09-04T03:00:00Z",
@@ -156,6 +157,7 @@ X-Vacaro-CSRF: same-origin
 | フィールド | 型 | 説明 |
 |---|---|---|
 | `account_type` | string | `guest`または`registered` |
+| `time_zone` | string | 日時の入力・表示に使用するIANAタイムゾーン |
 | `email` | string/null | Google認証済みユーザーのメールアドレス |
 | `guest_expires_at` | string/null | ゲストの失効日時。登録ユーザーは`null` |
 
@@ -167,7 +169,6 @@ X-Vacaro-CSRF: same-origin
   "created_by_user_id": "0198d540-45b8-7f91-9fa8-4d7a455b1022",
   "title": "開発ミーティング",
   "description": "次回リリースについて相談します",
-  "time_zone": "Asia/Tokyo",
   "window_start_at": "2026-09-10T00:00:00Z",
   "window_end_at": "2026-09-12T12:00:00Z",
   "duration_minutes": 60,
@@ -329,10 +330,11 @@ POST /api/v1/guest-sessions
 Request：
 
 ```json
-{"display_name":"田中"}
+{"display_name":"田中","time_zone":"Asia/Tokyo"}
 ```
 
 - `display_name`: 前後空白を除いて1～100文字
+- `time_zone`: 有効なIANAタイムゾーン
 - ゲストユーザーとセッションCookieを作成
 - Response: `201`、`data`はUser
 
@@ -344,14 +346,14 @@ GET /api/v1/me
 
 Response: `200`、`data`はUser。
 
-### 6.3 表示名変更
+### 6.3 プロフィール設定変更
 
 ```http
 PATCH /api/v1/me
 ```
 
 ```json
-{"display_name":"新しい表示名"}
+{"display_name":"新しい表示名","time_zone":"America/New_York"}
 ```
 
 Response: `200`、`data`は更新後のUser。
@@ -376,7 +378,6 @@ POST /api/v1/events
 {
   "title": "開発ミーティング",
   "description": "次回リリースについて相談します",
-  "time_zone": "Asia/Tokyo",
   "window_start_at": "2026-09-10T00:00:00Z",
   "window_end_at": "2026-09-12T12:00:00Z",
   "duration_minutes": 60,
@@ -389,7 +390,6 @@ POST /api/v1/events
 
 - `title`: 必須、1～200文字
 - `description`: 任意、最大5,000文字。空白だけの場合は`null`として保存
-- `time_zone`: 必須、有効なIANAタイムゾーン
 - `window_start_at`: 必須
 - `window_end_at`: 必須、`window_start_at`より後
 - `duration_minutes`: 5～1,440分かつイベント期間以下
@@ -452,7 +452,6 @@ PATCH /api/v1/events/{event_id}
 {
   "title": "更新後タイトル",
   "description": null,
-  "time_zone": "Asia/Tokyo",
   "window_start_at": "2026-09-10T00:00:00Z",
   "window_end_at": "2026-09-11T12:00:00Z",
   "duration_minutes": 90,

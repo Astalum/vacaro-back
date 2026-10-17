@@ -124,6 +124,10 @@ func (s *Service) PreviewGoogleCalendarAvailability(ctx context.Context, eventID
 	if err != nil {
 		return nil, err
 	}
+	user, err := s.store.GetUser(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
 	ciphertext, _, err := s.store.GetGoogleCalendarConnection(ctx, userID)
 	if err != nil {
 		return nil, err
@@ -132,7 +136,7 @@ func (s *Service) PreviewGoogleCalendarAvailability(ctx context.Context, eventID
 	if err != nil {
 		return nil, err
 	}
-	busy, err := s.google.FreeBusy(ctx, string(plain), calendarIDs, event.WindowStartAt, event.WindowEndAt, event.TimeZone)
+	busy, err := s.google.FreeBusy(ctx, string(plain), calendarIDs, event.WindowStartAt, event.WindowEndAt, user.TimeZone)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", domain.ErrOAuthFailed, err)
 	}

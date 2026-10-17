@@ -9,12 +9,13 @@ import (
 func (a *API) createGuestSession(w http.ResponseWriter, r *http.Request) {
 	var request struct {
 		DisplayName string `json:"display_name"`
+		TimeZone    string `json:"time_zone"`
 	}
 	if err := decodeJSON(w, r, &request); err != nil {
 		writeInvalidJSON(w, r)
 		return
 	}
-	user, err := a.service.CreateGuest(r.Context(), request.DisplayName)
+	user, err := a.service.CreateGuest(r.Context(), request.DisplayName, request.TimeZone)
 	if err != nil {
 		writeAPIError(w, r, err)
 		return
@@ -42,12 +43,13 @@ func (a *API) getMe(w http.ResponseWriter, r *http.Request) {
 func (a *API) updateMe(w http.ResponseWriter, r *http.Request) {
 	var request struct {
 		DisplayName string `json:"display_name"`
+		TimeZone    string `json:"time_zone"`
 	}
 	if err := decodeJSON(w, r, &request); err != nil {
 		writeInvalidJSON(w, r)
 		return
 	}
-	user, err := a.service.UpdateUserName(r.Context(), currentUserID(r), request.DisplayName)
+	user, err := a.service.UpdateUser(r.Context(), currentUserID(r), request.DisplayName, request.TimeZone)
 	if err != nil {
 		writeAPIError(w, r, err)
 		return

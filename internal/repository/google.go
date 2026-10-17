@@ -71,7 +71,7 @@ func (s *Store) UpsertGoogleUser(ctx context.Context, currentUserID, subject, em
 	}
 
 	user, err := scanUser(tx.QueryRow(ctx, `
-		SELECT id::text, account_type, display_name, email, guest_expires_at, created_at, updated_at
+		SELECT id::text, account_type, display_name, time_zone, email, guest_expires_at, created_at, updated_at
 		FROM users WHERE id = $1
 	`, targetUserID))
 	if err != nil {

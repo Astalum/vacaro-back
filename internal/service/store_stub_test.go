@@ -9,9 +9,9 @@ import (
 )
 
 type storeStub struct {
-	createGuest           func(context.Context, string, time.Time) (domain.User, error)
+	createGuest           func(context.Context, string, string, time.Time) (domain.User, error)
 	getUser               func(context.Context, string) (domain.User, error)
-	updateUserName        func(context.Context, string, string) (domain.User, error)
+	updateUser            func(context.Context, string, string, string) (domain.User, error)
 	createEvent           func(context.Context, repository.CreateEventParams) (domain.Event, error)
 	listEvents            func(context.Context, string, string, *time.Time, *string, int) ([]domain.Event, error)
 	getEventForUser       func(context.Context, string, string) (domain.Event, error)
@@ -47,14 +47,17 @@ type storeStub struct {
 	reopenGroup           func(context.Context, string, string, string) (domain.SchedulingGroup, error)
 }
 
-func (s storeStub) CreateGuest(ctx context.Context, name string, expires time.Time) (domain.User, error) {
-	return s.createGuest(ctx, name, expires)
+func (s storeStub) CreateGuest(ctx context.Context, name, timeZone string, expires time.Time) (domain.User, error) {
+	return s.createGuest(ctx, name, timeZone, expires)
 }
 func (s storeStub) GetUser(ctx context.Context, id string) (domain.User, error) {
+	if s.getUser == nil {
+		return domain.User{ID: id, TimeZone: "Asia/Tokyo"}, nil
+	}
 	return s.getUser(ctx, id)
 }
-func (s storeStub) UpdateUserName(ctx context.Context, id, name string) (domain.User, error) {
-	return s.updateUserName(ctx, id, name)
+func (s storeStub) UpdateUser(ctx context.Context, id, name, timeZone string) (domain.User, error) {
+	return s.updateUser(ctx, id, name, timeZone)
 }
 func (s storeStub) CreateEvent(ctx context.Context, params repository.CreateEventParams) (domain.Event, error) {
 	return s.createEvent(ctx, params)

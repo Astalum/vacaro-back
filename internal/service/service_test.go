@@ -14,17 +14,21 @@ import (
 func TestCreateGuestTrimsNameAndSetsExpiration(t *testing.T) {
 	before := time.Now().UTC()
 	var gotName string
+	var gotTimeZone string
 	var gotExpiration time.Time
-	store := storeStub{createGuest: func(_ context.Context, name string, expiration time.Time) (domain.User, error) {
-		gotName, gotExpiration = name, expiration
-		return domain.User{DisplayName: name, GuestExpiresAt: &expiration}, nil
+	store := storeStub{createGuest: func(_ context.Context, name, timeZone string, expiration time.Time) (domain.User, error) {
+		gotName, gotTimeZone, gotExpiration = name, timeZone, expiration
+		return domain.User{DisplayName: name, TimeZone: timeZone, GuestExpiresAt: &expiration}, nil
 	}}
 	service := New(store, 24*time.Hour, "http://localhost:3000")
-	if _, err := service.CreateGuest(context.Background(), "  Tanaka  "); err != nil {
+	if _, err := service.CreateGuest(context.Background(), "  Tanaka  ", "Asia/Tokyo"); err != nil {
 		t.Fatal(err)
 	}
 	if gotName != "Tanaka" {
 		t.Errorf("name = %q, want Tanaka", gotName)
+	}
+	if gotTimeZone != "Asia/Tokyo" {
+		t.Errorf("time zone = %q, want Asia/Tokyo", gotTimeZone)
 	}
 	wantExpiration := before.Add(24 * time.Hour)
 	if gotExpiration.Before(wantExpiration) || gotExpiration.After(wantExpiration.Add(time.Second)) {
@@ -34,8 +38,11 @@ func TestCreateGuestTrimsNameAndSetsExpiration(t *testing.T) {
 
 func TestCreateGuestRejectsInvalidName(t *testing.T) {
 	service := New(storeStub{}, time.Hour, "")
-	if _, err := service.CreateGuest(context.Background(), "   "); err == nil {
+	if _, err := service.CreateGuest(context.Background(), "   ", "Asia/Tokyo"); err == nil {
 		t.Fatal("CreateGuest() error = nil, want validation error")
+	}
+	if _, err := service.CreateGuest(context.Background(), "Tanaka", "Mars/Olympus"); err == nil {
+		t.Fatal("CreateGuest() invalid time zone error = nil")
 	}
 }
 
@@ -54,7 +61,7 @@ func TestCreateEvent(t *testing.T) {
 	}
 	service := New(store, time.Hour, "http://localhost:3000/")
 	result, err := service.CreateEvent(context.Background(), "user-id", CreateEventInput{
-		Title: " Event ", TimeZone: "Asia/Tokyo", WindowStartAt: base,
+		Title: " Event ", WindowStartAt: base,
 		WindowEndAt: base.Add(2 * time.Hour), DurationMinutes: 60,
 		ResultsVisibleToParticipants: &resultsVisible,
 	})
@@ -81,10 +88,9 @@ func TestValidateEvent(t *testing.T) {
 		name  string
 		input CreateEventInput
 	}{
-		{name: "blank title", input: CreateEventInput{TimeZone: "Asia/Tokyo", WindowStartAt: base, WindowEndAt: base.Add(time.Hour), DurationMinutes: 60}},
-		{name: "invalid timezone", input: CreateEventInput{Title: "Event", TimeZone: "Mars/Olympus", WindowStartAt: base, WindowEndAt: base.Add(time.Hour), DurationMinutes: 60}},
-		{name: "invalid window", input: CreateEventInput{Title: "Event", TimeZone: "UTC", WindowStartAt: base, WindowEndAt: base, DurationMinutes: 60}},
-		{name: "short duration", input: CreateEventInput{Title: "Event", TimeZone: "UTC", WindowStartAt: base, WindowEndAt: base.Add(time.Hour), DurationMinutes: 1}},
+		{name: "blank title", input: CreateEventInput{WindowStartAt: base, WindowEndAt: base.Add(time.Hour), DurationMinutes: 60}},
+		{name: "invalid window", input: CreateEventInput{Title: "Event", WindowStartAt: base, WindowEndAt: base, DurationMinutes: 60}},
+		{name: "short duration", input: CreateEventInput{Title: "Event", WindowStartAt: base, WindowEndAt: base.Add(time.Hour), DurationMinutes: 1}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -184,7 +190,7 @@ func TestConfirmEventValidation(t *testing.T) {
 func TestConfirmEventSyncsConnectedParticipantCalendar(t *testing.T) {
 	base := time.Date(2026, 10, 10, 1, 15, 0, 0, time.UTC)
 	event := domain.Event{
-		ID: "event-1", CreatedByUserID: "owner", Title: "定例会", TimeZone: "Asia/Tokyo",
+		ID: "event-1", CreatedByUserID: "owner", Title: "定例会",
 		WindowStartAt: base, WindowEndAt: base.Add(4 * time.Hour), DurationMinutes: 60,
 	}
 	store := storeStub{
@@ -221,7 +227,7 @@ func TestConfirmEventSyncsConnectedParticipantCalendar(t *testing.T) {
 	if _, err := application.ConfirmEvent(context.Background(), event.ID, "owner", base, base.Add(time.Hour)); err != nil {
 		t.Fatal(err)
 	}
-	if gotToken != "refresh-token" || gotEvent.Summary != event.Title || gotEvent.TimeZone != event.TimeZone {
+	if gotToken != "refresh-token" || gotEvent.Summary != event.Title || gotEvent.TimeZone != "Asia/Tokyo" {
 		t.Fatalf("calendar sync = token %q, event %#v", gotToken, gotEvent)
 	}
 	if gotEvent.Description != "vacaroで確定した予定です。\nhttps://vacaro.example/events/event-1/confirmed" {

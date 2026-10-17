@@ -147,7 +147,7 @@ func TestConfirmGroupAllowsConfirmedEvent(t *testing.T) {
 func TestConfirmGroupSyncsOnlyGroupMemberCalendar(t *testing.T) {
 	base := time.Date(2026, 10, 10, 2, 0, 0, 0, time.UTC)
 	event := domain.Event{
-		ID: "event-1", CreatedByUserID: "owner", Title: "面談", TimeZone: "Asia/Tokyo",
+		ID: "event-1", CreatedByUserID: "owner", Title: "面談",
 		Status: "open", SchedulingMode: "groups", WindowStartAt: base,
 		WindowEndAt: base.Add(3 * time.Hour),
 	}

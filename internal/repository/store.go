@@ -20,31 +20,31 @@ func New(pool *pgxpool.Pool) *Store {
 	return &Store{pool: pool}
 }
 
-func (s *Store) CreateGuest(ctx context.Context, displayName string, expiresAt time.Time) (domain.User, error) {
+func (s *Store) CreateGuest(ctx context.Context, displayName, timeZone string, expiresAt time.Time) (domain.User, error) {
 	row := s.pool.QueryRow(ctx, `
-		INSERT INTO users (account_type, display_name, guest_expires_at)
-		VALUES ('guest', $1, $2)
-		RETURNING id::text, account_type, display_name, email, guest_expires_at, created_at, updated_at
-	`, displayName, expiresAt)
+		INSERT INTO users (account_type, display_name, time_zone, guest_expires_at)
+		VALUES ('guest', $1, $2, $3)
+		RETURNING id::text, account_type, display_name, time_zone, email, guest_expires_at, created_at, updated_at
+	`, displayName, timeZone, expiresAt)
 	return scanUser(row)
 }
 
 func (s *Store) GetUser(ctx context.Context, userID string) (domain.User, error) {
 	row := s.pool.QueryRow(ctx, `
-		SELECT id::text, account_type, display_name, email, guest_expires_at, created_at, updated_at
+		SELECT id::text, account_type, display_name, time_zone, email, guest_expires_at, created_at, updated_at
 		FROM users
 		WHERE id = $1 AND anonymized_at IS NULL
 	`, userID)
 	return scanUser(row)
 }
 
-func (s *Store) UpdateUserName(ctx context.Context, userID, displayName string) (domain.User, error) {
+func (s *Store) UpdateUser(ctx context.Context, userID, displayName, timeZone string) (domain.User, error) {
 	row := s.pool.QueryRow(ctx, `
 		UPDATE users
-		SET display_name = $2, updated_at = CURRENT_TIMESTAMP
+		SET display_name = $2, time_zone = $3, updated_at = CURRENT_TIMESTAMP
 		WHERE id = $1 AND anonymized_at IS NULL
-		RETURNING id::text, account_type, display_name, email, guest_expires_at, created_at, updated_at
-	`, userID, displayName)
+		RETURNING id::text, account_type, display_name, time_zone, email, guest_expires_at, created_at, updated_at
+	`, userID, displayName, timeZone)
 	return scanUser(row)
 }
 
@@ -53,7 +53,6 @@ type CreateEventParams struct {
 	InviteTokenHash              string
 	Title                        string
 	Description                  *string
-	TimeZone                     string
 	WindowStartAt                time.Time
 	WindowEndAt                  time.Time
 	DurationMinutes              int
@@ -75,13 +74,13 @@ func (s *Store) CreateEvent(ctx context.Context, params CreateEventParams) (doma
 
 	row := tx.QueryRow(ctx, `
 		INSERT INTO events (
-			created_by_user_id, invite_token_hash, title, description, time_zone,
+			created_by_user_id, invite_token_hash, title, description,
 			window_start_at, window_end_at, duration_minutes, scheduling_mode, response_deadline_at,
 			results_visible_to_participants
 		)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, COALESCE($11::boolean, TRUE))
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, COALESCE($10::boolean, TRUE))
 		RETURNING `+eventColumns, params.CreatedByUserID, params.InviteTokenHash, params.Title,
-		params.Description, params.TimeZone, params.WindowStartAt, params.WindowEndAt,
+		params.Description, params.WindowStartAt, params.WindowEndAt,
 		params.DurationMinutes, params.SchedulingMode, params.ResponseDeadlineAt,
 		params.ResultsVisibleToParticipants)
 	event, err := scanEvent(row)
@@ -157,7 +156,6 @@ type UpdateEventParams struct {
 	UserID             string
 	Title              string
 	Description        *string
-	TimeZone           string
 	WindowStartAt      time.Time
 	WindowEndAt        time.Time
 	DurationMinutes    int
@@ -200,13 +198,13 @@ func (s *Store) UpdateEvent(ctx context.Context, params UpdateEventParams) (doma
 	}
 	row := tx.QueryRow(ctx, `
 		UPDATE events
-		SET title = $3, description = $4, time_zone = $5, window_start_at = $6,
-			window_end_at = $7, duration_minutes = $8, scheduling_mode = $9,
-			response_deadline_at = $10,
+		SET title = $3, description = $4, window_start_at = $5,
+			window_end_at = $6, duration_minutes = $7, scheduling_mode = $8,
+			response_deadline_at = $9,
 			updated_at = CURRENT_TIMESTAMP
 		WHERE id = $1 AND created_by_user_id = $2 AND status = 'open'
 		RETURNING `+eventColumns,
-		params.EventID, params.UserID, params.Title, params.Description, params.TimeZone,
+		params.EventID, params.UserID, params.Title, params.Description,
 		params.WindowStartAt, params.WindowEndAt, params.DurationMinutes, params.SchedulingMode,
 		params.ResponseDeadlineAt)
 	event, err := scanEvent(row)
@@ -521,14 +519,14 @@ func (s *Store) listIntervals(ctx context.Context, participantID string) ([]doma
 }
 
 const eventColumns = `
-	id::text, created_by_user_id::text, title, description, time_zone,
+	id::text, created_by_user_id::text, title, description,
 	window_start_at, window_end_at, duration_minutes, scheduling_mode, status,
 	confirmed_start_at, confirmed_end_at, response_deadline_at,
 	results_visible_to_participants, created_at, updated_at`
 
 func prefixedEventColumns(prefix string) string {
 	return prefix + `.id::text, ` + prefix + `.created_by_user_id::text, ` + prefix + `.title, ` +
-		prefix + `.description, ` + prefix + `.time_zone, ` + prefix + `.window_start_at, ` +
+		prefix + `.description, ` + prefix + `.window_start_at, ` +
 		prefix + `.window_end_at, ` + prefix + `.duration_minutes, ` + prefix + `.scheduling_mode, ` + prefix + `.status, ` +
 		prefix + `.confirmed_start_at, ` + prefix + `.confirmed_end_at, ` + prefix + `.response_deadline_at, ` +
 		prefix + `.results_visible_to_participants, ` + prefix + `.created_at, ` + prefix + `.updated_at`
@@ -552,14 +550,14 @@ type rowScanner interface {
 
 func scanUser(row rowScanner) (domain.User, error) {
 	var value domain.User
-	err := row.Scan(&value.ID, &value.AccountType, &value.DisplayName, &value.Email, &value.GuestExpiresAt, &value.CreatedAt, &value.UpdatedAt)
+	err := row.Scan(&value.ID, &value.AccountType, &value.DisplayName, &value.TimeZone, &value.Email, &value.GuestExpiresAt, &value.CreatedAt, &value.UpdatedAt)
 	return value, translateNotFound(err)
 }
 
 func scanEvent(row rowScanner) (domain.Event, error) {
 	var value domain.Event
 	err := row.Scan(
-		&value.ID, &value.CreatedByUserID, &value.Title, &value.Description, &value.TimeZone,
+		&value.ID, &value.CreatedByUserID, &value.Title, &value.Description,
 		&value.WindowStartAt, &value.WindowEndAt, &value.DurationMinutes, &value.SchedulingMode, &value.Status,
 		&value.ConfirmedStartAt, &value.ConfirmedEndAt, &value.ResponseDeadlineAt,
 		&value.ResultsVisibleToParticipants, &value.CreatedAt, &value.UpdatedAt,

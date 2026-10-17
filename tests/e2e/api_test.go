@@ -77,7 +77,7 @@ func TestMVPFlow(t *testing.T) {
 	start := time.Now().UTC().Add(24 * time.Hour).Truncate(time.Minute)
 	end := start.Add(4 * time.Hour)
 	request := map[string]any{
-		"title": "E2E Event", "description": "temporary test event", "time_zone": "Asia/Tokyo",
+		"title": "E2E Event", "description": "temporary test event",
 		"window_start_at": start, "window_end_at": end, "duration_minutes": 60,
 		"response_deadline_at": start.Add(-time.Hour),
 	}
@@ -223,7 +223,7 @@ func TestSchedulingGroupFlow(t *testing.T) {
 
 	start := time.Now().UTC().Add(72 * time.Hour).Truncate(time.Minute)
 	created := doJSON[event](t, organizer, http.MethodPost, baseURL+"/api/v1/events", map[string]any{
-		"title": "Group E2E Event", "time_zone": "Asia/Tokyo",
+		"title":           "Group E2E Event",
 		"window_start_at": start, "window_end_at": start.Add(4 * time.Hour),
 		"duration_minutes": 60, "scheduling_mode": "groups",
 	}, http.StatusCreated)
@@ -292,14 +292,14 @@ func TestSchedulingGroupFlow(t *testing.T) {
 func createE2EEvent(t *testing.T, client *http.Client, baseURL, title string, start, end time.Time) event {
 	t.Helper()
 	return doJSON[event](t, client, http.MethodPost, baseURL+"/api/v1/events", map[string]any{
-		"title": title, "time_zone": "Asia/Tokyo", "window_start_at": start,
+		"title": title, "window_start_at": start,
 		"window_end_at": end, "duration_minutes": 30,
 	}, http.StatusCreated)
 }
 
 func createGuest(t *testing.T, client *http.Client, baseURL, name string) user {
 	t.Helper()
-	return doJSON[user](t, client, http.MethodPost, baseURL+"/api/v1/guest-sessions", map[string]string{"display_name": name}, http.StatusCreated)
+	return doJSON[user](t, client, http.MethodPost, baseURL+"/api/v1/guest-sessions", map[string]string{"display_name": name, "time_zone": "Asia/Tokyo"}, http.StatusCreated)
 }
 
 func newClient(t *testing.T) *http.Client {

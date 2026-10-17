@@ -6,6 +6,7 @@ type User struct {
 	ID             string     `json:"id"`
 	AccountType    string     `json:"account_type"`
 	DisplayName    string     `json:"display_name"`
+	TimeZone       string     `json:"time_zone"`
 	Email          *string    `json:"email"`
 	GuestExpiresAt *time.Time `json:"guest_expires_at"`
 	CreatedAt      time.Time  `json:"created_at"`
@@ -17,7 +18,6 @@ type Event struct {
 	CreatedByUserID              string     `json:"created_by_user_id,omitempty"`
 	Title                        string     `json:"title"`
 	Description                  *string    `json:"description"`
-	TimeZone                     string     `json:"time_zone"`
 	WindowStartAt                time.Time  `json:"window_start_at"`
 	WindowEndAt                  time.Time  `json:"window_end_at"`
 	DurationMinutes              int        `json:"duration_minutes"`

@@ -31,7 +31,7 @@ func eventCalendarEntry(publicAppURL string, event domain.Event, group *domain.S
 		Description: description,
 		StartAt:     startAt,
 		EndAt:       endAt,
-		TimeZone:    event.TimeZone,
+		TimeZone:    "UTC",
 	}
 }
 
@@ -167,6 +167,11 @@ func (s *Service) SyncOwnConfirmationCalendar(ctx context.Context, eventID strin
 }
 
 func (s *Service) syncConfirmationCalendarForUser(ctx context.Context, eventID string, groupID *string, userID string, event googleclient.CalendarEvent) (domain.ConfirmationCalendarSync, error) {
+	user, err := s.store.GetUser(ctx, userID)
+	if err != nil {
+		return domain.ConfirmationCalendarSync{}, err
+	}
+	event.TimeZone = user.TimeZone
 	refreshToken, err := s.googleCalendarTokenForWrite(ctx, userID, event.ID)
 	if err != nil {
 		if !errors.Is(err, domain.ErrCalendarNotConnected) && !errors.Is(err, domain.ErrCalendarWritePermission) {

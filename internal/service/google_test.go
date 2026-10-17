@@ -85,8 +85,11 @@ func TestPreviewGoogleCalendarAvailability(t *testing.T) {
 	start := time.Date(2026, 9, 10, 0, 0, 0, 0, time.UTC)
 	end := start.Add(6 * time.Hour)
 	store := storeStub{
+		getUser: func(context.Context, string) (domain.User, error) {
+			return domain.User{TimeZone: "Asia/Tokyo"}, nil
+		},
 		getEventForUser: func(context.Context, string, string) (domain.Event, error) {
-			return domain.Event{WindowStartAt: start, WindowEndAt: end, TimeZone: "Asia/Tokyo"}, nil
+			return domain.Event{WindowStartAt: start, WindowEndAt: end}, nil
 		},
 		getGoogleCalendar: func(context.Context, string) ([]byte, []string, error) {
 			return []byte("sealed:refresh-token"), []string{"calendar.freebusy"}, nil
