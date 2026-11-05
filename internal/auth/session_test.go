@@ -32,6 +32,34 @@ func TestSessionRoundTrip(t *testing.T) {
 	}
 }
 
+func TestResponseSessionRoundTrip(t *testing.T) {
+	key := base64.StdEncoding.EncodeToString([]byte("0123456789abcdef0123456789abcdef"))
+	manager, err := NewManager(key, false)
+	if err != nil {
+		t.Fatalf("NewManager() error = %v", err)
+	}
+
+	w := httptest.NewRecorder()
+	want := Session{UserID: "guest-id", AccountType: "response", EventID: "event-id", ExpiresAt: time.Now().Add(time.Hour).Unix()}
+	if err := manager.SetResponse(w, want); err != nil {
+		t.Fatalf("SetResponse() error = %v", err)
+	}
+	cookie := w.Result().Cookies()[0]
+	if cookie.Name != ResponseCookieName || cookie.Path != "/api/v1/events/" || !cookie.HttpOnly {
+		t.Fatalf("response cookie = %#v", cookie)
+	}
+
+	r := httptest.NewRequest("GET", "/api/v1/events/event-id", nil)
+	r.AddCookie(cookie)
+	got, err := manager.ReadResponse(r)
+	if err != nil {
+		t.Fatalf("ReadResponse() error = %v", err)
+	}
+	if got != want {
+		t.Errorf("ReadResponse() = %#v, want %#v", got, want)
+	}
+}
+
 func TestNewManagerRejectsInvalidKeys(t *testing.T) {
 	tests := []string{"not-base64", base64.StdEncoding.EncodeToString([]byte("too-short"))}
 	for _, key := range tests {
@@ -86,5 +114,41 @@ func TestExpiredSessionIsRejected(t *testing.T) {
 	r.AddCookie(w.Result().Cookies()[0])
 	if _, err := manager.Read(r); err == nil {
 		t.Fatal("Read() error = nil, want error")
+	}
+}
+
+func TestSessionsCannotBeRenamedAcrossScopes(t *testing.T) {
+	key := base64.StdEncoding.EncodeToString([]byte("0123456789abcdef0123456789abcdef"))
+	manager, err := NewManager(key, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	normal := httptest.NewRecorder()
+	if err := manager.Set(normal, Session{UserID: "guest", AccountType: "guest", ExpiresAt: time.Now().Add(time.Hour).Unix()}); err != nil {
+		t.Fatal(err)
+	}
+	response := httptest.NewRecorder()
+	if err := manager.SetResponse(response, Session{UserID: "guest", AccountType: "response", EventID: "event", ExpiresAt: time.Now().Add(time.Hour).Unix()}); err != nil {
+		t.Fatal(err)
+	}
+
+	renamedResponse := *response.Result().Cookies()[0]
+	renamedResponse.Name = CookieName
+	request := httptest.NewRequest("GET", "/api/v1/me", nil)
+	request.AddCookie(&renamedResponse)
+	if _, err := manager.Read(request); err == nil {
+		t.Fatal("response cookie was accepted as a full account session")
+	}
+
+	renamedNormal := *normal.Result().Cookies()[0]
+	renamedNormal.Name = ResponseCookieName
+	request = httptest.NewRequest("GET", "/api/v1/events/event", nil)
+	request.AddCookie(&renamedNormal)
+	if _, err := manager.ReadResponse(request); err == nil {
+		t.Fatal("normal cookie was accepted as a response session")
+	}
+
+	if err := manager.Set(httptest.NewRecorder(), Session{UserID: "guest", AccountType: "response", EventID: "event", ExpiresAt: time.Now().Add(time.Hour).Unix()}); err == nil {
+		t.Fatal("Set accepted an event-scoped response session")
 	}
 }

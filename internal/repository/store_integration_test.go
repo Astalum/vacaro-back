@@ -109,11 +109,11 @@ func TestStoreIntegration(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	participant, err := store.JoinEvent(ctx, rotatedTokenHash, member.ID, "Member")
+	participant, err := store.JoinEvent(ctx, rotatedTokenHash, member.ID, "Member", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.JoinEvent(ctx, rotatedTokenHash, member.ID, "Member"); !errors.Is(err, domain.ErrAlreadyJoined) {
+	if _, err := store.JoinEvent(ctx, rotatedTokenHash, member.ID, "Member", nil); !errors.Is(err, domain.ErrAlreadyJoined) {
 		t.Fatalf("duplicate JoinEvent() error = %v", err)
 	}
 	if participants, err := store.ListParticipants(ctx, event.ID, owner.ID); err != nil || len(participants) != 2 {
@@ -151,7 +151,7 @@ func TestStoreIntegration(t *testing.T) {
 	if _, err := store.ReplaceAvailability(ctx, event.ID, member.ID, []domain.AvailabilityInterval{interval}); !errors.Is(err, domain.ErrResponseDeadlinePassed) {
 		t.Fatalf("ReplaceAvailability() after deadline error = %v", err)
 	}
-	if _, err := store.JoinEvent(ctx, rotatedTokenHash, lateMember.ID, "Late Member"); !errors.Is(err, domain.ErrResponseDeadlinePassed) {
+	if _, err := store.JoinEvent(ctx, rotatedTokenHash, lateMember.ID, "Late Member", nil); !errors.Is(err, domain.ErrResponseDeadlinePassed) {
 		t.Fatalf("JoinEvent() after deadline error = %v", err)
 	}
 

@@ -48,6 +48,9 @@ Cookie属性：
 - ゲストの標準有効期間は168時間
 - Google認証済みユーザーの標準有効期間は720時間
 
+再回答用リンクからは、対象イベントの回答操作だけに利用できる暗号化Cookie
+`vacaro_response_session`を発行する。`Path=/api/v1/events/`、有効期限は発行から30日以内か回答期限の早い方とし、通常セッションや別イベントの権限には昇格させない。
+
 本書の認証区分は次の意味を持つ。
 
 | 区分 | 条件 |
@@ -55,6 +58,7 @@ Cookie属性：
 | 不要 | セッションなしで利用可能 |
 | 必要 | 有効なゲストまたはGoogle認証済みセッション |
 | 参加者 | 対象イベントの`participants`に現在ユーザーが存在 |
+| 回答セッション | 再回答用リンクから発行され、対象イベントの閲覧・本人回答操作だけに利用可能 |
 | 主催者 | 対象イベントの`created_by_user_id`が現在ユーザーと一致 |
 | Google認証 | `auth_accounts`に現在ユーザーのGoogleアカウントが存在 |
 | Calendar連携 | Google認証済みでRefresh Tokenを保存済み |
@@ -247,6 +251,7 @@ X-Vacaro-CSRF: same-origin
 | `GET` | `/health` | 不要 | `200` |
 | `GET` | `/ready` | 不要 | `200` |
 | `POST` | `/api/v1/guest-sessions` | 不要 | `201` |
+| `POST` | `/api/v1/response-sessions` | 不要 | `201` |
 | `GET` | `/api/v1/me` | 必要 | `200` |
 | `PATCH` | `/api/v1/me` | 必要 | `200` |
 | `DELETE` | `/api/v1/session` | 必要 | `204` |
@@ -276,6 +281,8 @@ X-Vacaro-CSRF: same-origin
 | `DELETE` | `/api/v1/events/{event_id}/participants/me` | 一般参加者 | `204` |
 | `GET` | `/api/v1/events/{event_id}/my-availability` | 参加者 | `200` |
 | `PUT` | `/api/v1/events/{event_id}/my-availability` | 参加者 | `200` |
+| `GET` | `/api/v1/events/{event_id}/response-user` | 参加者・回答セッション | `200` |
+| `POST` | `/api/v1/events/{event_id}/response-edit-link` | ゲスト参加者・回答セッション | `200` |
 | `POST` | `/api/v1/events/{event_id}/my-availability/copy` | Google認証・参加者 | `200` |
 | `GET` | `/api/v1/events/{event_id}/availability` | 参加者 | `200` |
 | `GET` | `/api/v1/events/{event_id}/candidates` | 参加者 | `200` |
@@ -365,6 +372,18 @@ DELETE /api/v1/session
 ```
 
 セッションCookieを削除し、`204`を返す。
+
+### 6.5 再回答セッション作成
+
+```http
+POST /api/v1/response-sessions
+```
+
+```json
+{"token":"<response-edit-token>"}
+```
+
+有効なトークンなら対象イベント専用のHttpOnly Cookieを設定し、`201`で`{"data":{"event_id":"..."}}`を返す。イベントが回答受付中でない場合や期限を過ぎている場合は拒否する。トークンは再回答URLのフラグメントに含め、アクセスログやRefererへ送信されないようフロント側で本文へ移して送信する。
 
 ## 7. イベント
 
@@ -703,7 +722,7 @@ POST /api/v1/invitations/{invite_token}/participants
 - イベントは`open`であること
 - 回答期限が設定されている場合、現在日時が期限より前であること
 - 同じユーザーが参加済みの場合は`409 already_joined`
-- Response: `201`、`data`は作成されたParticipant
+- Response: `201`、`data`は作成されたParticipant。ゲスト参加者には`response_edit_url`も返す
 
 ### 9.3 参加者一覧
 
@@ -720,6 +739,22 @@ DELETE /api/v1/events/{event_id}/participants/me
 ```
 
 一般参加者をイベントから削除し、回答も同時に削除する。主催者は退出できず`409 organizer_cannot_leave`。成功時は`204`。
+
+### 9.5 再回答用リンクの発行
+
+```http
+POST /api/v1/events/{event_id}/response-edit-link
+```
+
+ゲスト参加者本人（主催者を含む）に新しい`response_edit_url`を返す。再発行時はDB上のハッシュをローテーションし、以前のリンクを無効化する。登録ユーザーには発行しない。
+
+### 9.6 再回答セッションのユーザー取得
+
+```http
+GET /api/v1/events/{event_id}/response-user
+```
+
+通常セッションまたは対象イベントと一致する回答セッションでUserを返す。回答セッションは別イベントには利用できない。
 
 ## 10. 参加可能時間・候補
 

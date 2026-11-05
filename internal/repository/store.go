@@ -242,7 +242,7 @@ func (s *Store) RotateInviteToken(ctx context.Context, eventID, userID, tokenHas
 	return nil
 }
 
-func (s *Store) JoinEvent(ctx context.Context, tokenHash, userID, displayName string) (domain.Participant, error) {
+func (s *Store) JoinEvent(ctx context.Context, tokenHash, userID, displayName string, responseEditTokenHash *string) (domain.Participant, error) {
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
 		return domain.Participant{}, fmt.Errorf("begin join event: %w", err)
@@ -265,9 +265,9 @@ func (s *Store) JoinEvent(ctx context.Context, tokenHash, userID, displayName st
 	}
 
 	row := tx.QueryRow(ctx, `
-		INSERT INTO participants (event_id, user_id, display_name)
-		VALUES ($1, $2, $3)
-		RETURNING `+participantColumns, eventID, userID, displayName)
+		INSERT INTO participants (event_id, user_id, display_name, response_edit_token_hash)
+		VALUES ($1, $2, $3, $4)
+		RETURNING `+participantColumns, eventID, userID, displayName, responseEditTokenHash)
 	participant, err := scanParticipant(row)
 	if err != nil {
 		var pgErr *pgconn.PgError
@@ -281,6 +281,44 @@ func (s *Store) JoinEvent(ctx context.Context, tokenHash, userID, displayName st
 		return domain.Participant{}, fmt.Errorf("commit join event: %w", err)
 	}
 	return participant, nil
+}
+
+func (s *Store) RotateResponseEditToken(ctx context.Context, eventID, userID, tokenHash string) error {
+	command, err := s.pool.Exec(ctx, `
+		UPDATE participants
+		SET response_edit_token_hash = $3, updated_at = CURRENT_TIMESTAMP
+		WHERE event_id = $1 AND user_id = $2
+	`, eventID, userID, tokenHash)
+	if err != nil {
+		return err
+	}
+	if command.RowsAffected() == 0 {
+		return domain.ErrNotFound
+	}
+	return nil
+}
+
+func (s *Store) GetResponseEditPrincipal(ctx context.Context, tokenHash string) (domain.ResponseEditPrincipal, error) {
+	var eventID, userID string
+	if err := s.pool.QueryRow(ctx, `
+		SELECT event_id::text, user_id::text
+		FROM participants
+		WHERE response_edit_token_hash = $1
+	`, tokenHash).Scan(&eventID, &userID); err != nil {
+		return domain.ResponseEditPrincipal{}, translateNotFound(err)
+	}
+	event, err := s.GetEventForUser(ctx, eventID, userID)
+	if err != nil {
+		return domain.ResponseEditPrincipal{}, err
+	}
+	user, err := s.GetUser(ctx, userID)
+	if err != nil {
+		return domain.ResponseEditPrincipal{}, err
+	}
+	if user.AccountType != "guest" {
+		return domain.ResponseEditPrincipal{}, domain.ErrPermissionDenied
+	}
+	return domain.ResponseEditPrincipal{Event: event, User: user}, nil
 }
 
 func (s *Store) ListParticipants(ctx context.Context, eventID, userID string) ([]domain.Participant, error) {

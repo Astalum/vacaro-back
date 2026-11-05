@@ -72,6 +72,21 @@ func Authenticate(manager *auth.Manager, next http.Handler) http.Handler {
 	})
 }
 
+func AuthenticateEvent(manager *auth.Manager, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if session, err := manager.ReadResponse(r); err == nil && session.AccountType == "response" && session.EventID == r.PathValue("event_id") {
+			next.ServeHTTP(w, r.WithContext(auth.WithSession(r.Context(), session)))
+			return
+		}
+		session, err := manager.Read(r)
+		if err != nil {
+			writeError(w, http.StatusUnauthorized, "authentication_required", "認証が必要です", RequestIDFromContext(r.Context()))
+			return
+		}
+		next.ServeHTTP(w, r.WithContext(auth.WithSession(r.Context(), session)))
+	})
+}
+
 func Chain(handler http.Handler, middlewares ...func(http.Handler) http.Handler) http.Handler {
 	for i := len(middlewares) - 1; i >= 0; i-- {
 		handler = middlewares[i](handler)

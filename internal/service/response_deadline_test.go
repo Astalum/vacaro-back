@@ -41,7 +41,7 @@ func TestJoinEventRejectsPassedResponseDeadline(t *testing.T) {
 		getEventByInvite: func(context.Context, string) (domain.Event, error) {
 			return domain.Event{Status: "open", ResponseDeadlineAt: &deadline}, nil
 		},
-		joinEvent: func(context.Context, string, string, string) (domain.Participant, error) {
+		joinEvent: func(context.Context, string, string, string, *string) (domain.Participant, error) {
 			joinCalled = true
 			return domain.Participant{}, nil
 		},

@@ -13,13 +13,17 @@ import (
 	"time"
 )
 
-const CookieName = "vacaro_session"
+const (
+	CookieName         = "vacaro_session"
+	ResponseCookieName = "vacaro_response_session"
+)
 
 var ErrInvalidSession = errors.New("invalid session")
 
 type Session struct {
 	UserID      string `json:"user_id"`
 	AccountType string `json:"account_type"`
+	EventID     string `json:"event_id,omitempty"`
 	ExpiresAt   int64  `json:"expires_at"`
 }
 
@@ -52,6 +56,20 @@ func NewManager(encodedKey string, secure bool) (*Manager, error) {
 }
 
 func (m *Manager) Set(w http.ResponseWriter, session Session) error {
+	if (session.AccountType != "guest" && session.AccountType != "registered") || session.EventID != "" {
+		return ErrInvalidSession
+	}
+	return m.setCookie(w, CookieName, "/", session)
+}
+
+func (m *Manager) SetResponse(w http.ResponseWriter, session Session) error {
+	if session.EventID == "" || session.AccountType != "response" {
+		return ErrInvalidSession
+	}
+	return m.setCookie(w, ResponseCookieName, "/api/v1/events/", session)
+}
+
+func (m *Manager) setCookie(w http.ResponseWriter, name, path string, session Session) error {
 	plaintext, err := json.Marshal(session)
 	if err != nil {
 		return fmt.Errorf("encode session: %w", err)
@@ -64,9 +82,9 @@ func (m *Manager) Set(w http.ResponseWriter, session Session) error {
 
 	value := m.aead.Seal(nonce, nonce, plaintext, nil)
 	http.SetCookie(w, &http.Cookie{
-		Name:     CookieName,
+		Name:     name,
 		Value:    base64.RawURLEncoding.EncodeToString(value),
-		Path:     "/",
+		Path:     path,
 		Expires:  time.Unix(session.ExpiresAt, 0),
 		MaxAge:   int(time.Until(time.Unix(session.ExpiresAt, 0)).Seconds()),
 		HttpOnly: true,
@@ -89,7 +107,23 @@ func (m *Manager) Clear(w http.ResponseWriter) {
 }
 
 func (m *Manager) Read(r *http.Request) (Session, error) {
-	cookie, err := r.Cookie(CookieName)
+	session, err := m.readCookie(r, CookieName)
+	if err != nil || (session.AccountType != "guest" && session.AccountType != "registered") || session.EventID != "" {
+		return Session{}, ErrInvalidSession
+	}
+	return session, nil
+}
+
+func (m *Manager) ReadResponse(r *http.Request) (Session, error) {
+	session, err := m.readCookie(r, ResponseCookieName)
+	if err != nil || session.AccountType != "response" || session.EventID == "" {
+		return Session{}, ErrInvalidSession
+	}
+	return session, nil
+}
+
+func (m *Manager) readCookie(r *http.Request, name string) (Session, error) {
+	cookie, err := r.Cookie(name)
 	if err != nil {
 		return Session{}, ErrInvalidSession
 	}

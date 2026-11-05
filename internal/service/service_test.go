@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -43,6 +44,74 @@ func TestCreateGuestRejectsInvalidName(t *testing.T) {
 	}
 	if _, err := service.CreateGuest(context.Background(), "Tanaka", "Mars/Olympus"); err == nil {
 		t.Fatal("CreateGuest() invalid time zone error = nil")
+	}
+}
+
+func TestJoinEventIssuesScopedEditLinkForGuest(t *testing.T) {
+	event := domain.Event{ID: "event-1", Status: "open"}
+	var storedResponseHash *string
+	store := storeStub{
+		getEventByInvite: func(context.Context, string) (domain.Event, error) {
+			return event, nil
+		},
+		getUser: func(context.Context, string) (domain.User, error) {
+			return domain.User{ID: "guest-1", AccountType: "guest"}, nil
+		},
+		joinEvent: func(_ context.Context, _, _, _ string, responseHash *string) (domain.Participant, error) {
+			storedResponseHash = responseHash
+			return domain.Participant{ID: "participant-1", EventID: event.ID}, nil
+		},
+	}
+	application := New(store, time.Hour, "https://vacaro.test")
+	result, err := application.JoinEvent(context.Background(), "invite-token", "guest-1", "Guest")
+	if err != nil {
+		t.Fatal(err)
+	}
+	const prefix = "https://vacaro.test/responses/edit#"
+	if !strings.HasPrefix(result.ResponseEditURL, prefix) {
+		t.Fatalf("response edit URL = %q", result.ResponseEditURL)
+	}
+	if storedResponseHash == nil || hashToken(strings.TrimPrefix(result.ResponseEditURL, prefix)) != *storedResponseHash {
+		t.Fatal("stored response token hash does not match the issued link")
+	}
+}
+
+func TestIssueAndResolveResponseEditLink(t *testing.T) {
+	deadline := time.Now().UTC().Add(2 * time.Hour)
+	var storedHash string
+	store := storeStub{
+		getUser: func(context.Context, string) (domain.User, error) {
+			return domain.User{ID: "guest-1", AccountType: "guest"}, nil
+		},
+		getEventForUser: func(context.Context, string, string) (domain.Event, error) {
+			return domain.Event{ID: "event-1", Status: "open", ResponseDeadlineAt: &deadline}, nil
+		},
+		rotateResponseToken: func(_ context.Context, _, _, hash string) error {
+			storedHash = hash
+			return nil
+		},
+		getResponsePrincipal: func(_ context.Context, hash string) (domain.ResponseEditPrincipal, error) {
+			if hash != storedHash {
+				t.Fatalf("lookup hash = %q, want %q", hash, storedHash)
+			}
+			return domain.ResponseEditPrincipal{
+				Event: domain.Event{ID: "event-1", Status: "open", ResponseDeadlineAt: &deadline},
+				User:  domain.User{ID: "guest-1", AccountType: "guest"},
+			}, nil
+		},
+	}
+	application := New(store, time.Hour, "https://vacaro.test")
+	responseEditURL, err := application.IssueResponseEditLink(context.Background(), "event-1", "guest-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	token := strings.TrimPrefix(responseEditURL, "https://vacaro.test/responses/edit#")
+	access, err := application.ResolveResponseEditToken(context.Background(), token)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if access.EventID != "event-1" || access.UserID != "guest-1" || !access.ExpiresAt.Equal(deadline) {
+		t.Fatalf("access = %#v", access)
 	}
 }
 

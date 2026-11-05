@@ -33,7 +33,8 @@ type event struct {
 }
 
 type participant struct {
-	ID string `json:"id"`
+	ID              string `json:"id"`
+	ResponseEditURL string `json:"response_edit_url"`
 }
 
 type schedulingGroup struct {
@@ -88,11 +89,24 @@ func TestMVPFlow(t *testing.T) {
 	}
 
 	doJSON[event](t, http.DefaultClient, http.MethodGet, baseURL+"/api/v1/invitations/"+created.InviteToken, nil, http.StatusOK)
-	doJSON[map[string]any](t, member, http.MethodPost, baseURL+"/api/v1/invitations/"+created.InviteToken+"/participants", map[string]string{"display_name": "E2E Member"}, http.StatusCreated)
+	joined := doJSON[participant](t, member, http.MethodPost, baseURL+"/api/v1/invitations/"+created.InviteToken+"/participants", map[string]string{"display_name": "E2E Member"}, http.StatusCreated)
+	responseEditURL, err := url.Parse(joined.ResponseEditURL)
+	if err != nil || responseEditURL.Fragment == "" {
+		t.Fatalf("invalid response edit URL %q: %v", joined.ResponseEditURL, err)
+	}
 
 	availability := map[string]any{"intervals": []map[string]time.Time{{"start_at": start, "end_at": start.Add(2 * time.Hour)}}}
 	doJSON[map[string]any](t, organizer, http.MethodPut, baseURL+"/api/v1/events/"+eventID+"/my-availability", availability, http.StatusOK)
 	doJSON[map[string]any](t, member, http.MethodPut, baseURL+"/api/v1/events/"+eventID+"/my-availability", availability, http.StatusOK)
+
+	responseMember := newClient(t)
+	doJSON[map[string]string](t, responseMember, http.MethodPost, baseURL+"/api/v1/response-sessions", map[string]string{
+		"token": responseEditURL.Fragment,
+	}, http.StatusCreated)
+	doJSON[user](t, responseMember, http.MethodGet, baseURL+"/api/v1/events/"+eventID+"/response-user", nil, http.StatusOK)
+	doJSON[map[string]any](t, responseMember, http.MethodPut, baseURL+"/api/v1/events/"+eventID+"/my-availability", map[string]any{
+		"intervals": []map[string]time.Time{{"start_at": start.Add(time.Hour), "end_at": start.Add(3 * time.Hour)}},
+	}, http.StatusOK)
 
 	candidates := doJSON[[]struct {
 		AvailableCount int `json:"available_participant_count"`

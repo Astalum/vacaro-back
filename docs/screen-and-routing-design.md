@@ -52,6 +52,7 @@ vacaroは、主催者が候補枠を事前に列挙する日程調整サービ�
 | 主催者 | 作成完了 | `/events/:eventId/created` | 招待URLを共有 |
 | 共通 | イベント一覧 | `/events` | 自分が参加しているイベントを表示 |
 | 招待 | 招待確認・参加 | `/invitations/:inviteToken` | イベント内容の確認と参加登録 |
+| ゲスト | 再回答リンク受付 | `/responses/edit#token` | イベント限定の回答セッションを作成して回答画面へ転送 |
 | 参加者 | 参加可能時間入力 | `/events/:eventId/availability` | 自由な開始・終了日時を複数登録 |
 | 参加者・主催者 | 集計結果・日程確定 | `/events/:eventId/results` | 全体またはグループ別の候補・回答を表示し、主催者は日時を確定 |
 | 主催者 | イベント・グループ管理 | `/events/:eventId/manage` | 招待、イベント設定、小グループとメンバー編成を管理 |
@@ -139,6 +140,8 @@ Google OAuthの開始URLはAPIの`GET /api/v1/auth/google/start`を通常のブ�
 - ユーザー設定で選択したカレンダーを判定対象として使用
 - 空配列を「参加可能時間なし」として送信できる操作
 - 既存回答がある場合は編集として表示
+- ゲストには再回答用リンクの表示・コピー・再発行操作を表示
+- 再回答セッションでは通常ログインや他イベントへのアクセスを許可しない
 
 参加中イベントの一覧では、主催者以外に確認付きのイベント退出操作を表示する。退出すると、そのイベントの回答も削除される。
 
@@ -230,6 +233,7 @@ export default [
   route("events/:eventId/edit", "routes/events/edit.tsx"),
   route("events/:eventId/confirmed", "routes/events/confirmed.tsx"),
   route("invitations/:inviteToken", "routes/invitations/join.tsx"),
+  route("responses/edit", "routes/responses/edit.tsx"),
   route("*", "routes/not-found.tsx"),
 ] satisfies RouteConfig;
 ```
@@ -243,7 +247,8 @@ export default [
 | 作成完了 | 作成レスポンスの `invite_url` |
 | 招待確認 | `GET /api/v1/invitations/:inviteToken` |
 | イベント参加 | `POST /api/v1/guest-sessions`、`POST /api/v1/invitations/:inviteToken/participants` |
-| 参加可能時間入力 | `GET` / `PUT /api/v1/events/:eventId/my-availability` |
+| 再回答リンク受付 | `POST /api/v1/response-sessions` |
+| 参加可能時間入力 | `GET` / `PUT /api/v1/events/:eventId/my-availability`、`GET /response-user`、`POST /response-edit-link` |
 | カレンダー取込 | `POST /api/v1/events/:eventId/google-calendar-availability/preview` |
 | 集計結果 | `GET /api/v1/events/:eventId/availability`、`GET /api/v1/events/:eventId/candidates` |
 | グループ別集計結果 | `GET /api/v1/events/:eventId/groups`、グループ別availability・candidates・confirmation API |

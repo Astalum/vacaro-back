@@ -21,6 +21,7 @@ func NewAPI(service *service.Service, sessions *auth.Manager, oauthStates *auth.
 
 func (a *API) Register(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/v1/guest-sessions", a.createGuestSession)
+	mux.HandleFunc("POST /api/v1/response-sessions", a.createResponseSession)
 	mux.HandleFunc("GET /api/v1/invitations/{invite_token}", a.getInvitation)
 	mux.HandleFunc("GET /api/v1/auth/google/start", a.startGoogleLogin)
 	mux.HandleFunc("GET /api/v1/auth/google/callback", a.completeGoogleLogin)
@@ -29,12 +30,15 @@ func (a *API) Register(mux *http.ServeMux) {
 	authenticated := func(handler http.HandlerFunc) http.Handler {
 		return appmiddleware.Authenticate(a.sessions, handler)
 	}
+	eventAuthenticated := func(handler http.HandlerFunc) http.Handler {
+		return appmiddleware.AuthenticateEvent(a.sessions, handler)
+	}
 	mux.Handle("GET /api/v1/me", authenticated(a.getMe))
 	mux.Handle("PATCH /api/v1/me", authenticated(a.updateMe))
 	mux.Handle("DELETE /api/v1/session", authenticated(a.deleteSession))
 	mux.Handle("POST /api/v1/events", authenticated(a.createEvent))
 	mux.Handle("GET /api/v1/events", authenticated(a.listEvents))
-	mux.Handle("GET /api/v1/events/{event_id}", authenticated(a.getEvent))
+	mux.Handle("GET /api/v1/events/{event_id}", eventAuthenticated(a.getEvent))
 	mux.Handle("PATCH /api/v1/events/{event_id}", authenticated(a.updateEvent))
 	mux.Handle("PATCH /api/v1/events/{event_id}/results-visibility", authenticated(a.updateResultsVisibility))
 	mux.Handle("DELETE /api/v1/events/{event_id}", authenticated(a.cancelEvent))
@@ -56,8 +60,10 @@ func (a *API) Register(mux *http.ServeMux) {
 	mux.Handle("POST /api/v1/invitations/{invite_token}/participants", authenticated(a.joinEvent))
 	mux.Handle("GET /api/v1/events/{event_id}/participants", authenticated(a.listParticipants))
 	mux.Handle("DELETE /api/v1/events/{event_id}/participants/me", authenticated(a.leaveEvent))
-	mux.Handle("GET /api/v1/events/{event_id}/my-availability", authenticated(a.getOwnAvailability))
-	mux.Handle("PUT /api/v1/events/{event_id}/my-availability", authenticated(a.replaceAvailability))
+	mux.Handle("GET /api/v1/events/{event_id}/my-availability", eventAuthenticated(a.getOwnAvailability))
+	mux.Handle("PUT /api/v1/events/{event_id}/my-availability", eventAuthenticated(a.replaceAvailability))
+	mux.Handle("GET /api/v1/events/{event_id}/response-user", eventAuthenticated(a.getResponseUser))
+	mux.Handle("POST /api/v1/events/{event_id}/response-edit-link", eventAuthenticated(a.issueResponseEditLink))
 	mux.Handle("POST /api/v1/events/{event_id}/my-availability/copy", authenticated(a.copyOwnAvailability))
 	mux.Handle("GET /api/v1/events/{event_id}/availability", authenticated(a.listAvailability))
 	mux.Handle("GET /api/v1/events/{event_id}/candidates", authenticated(a.listCandidates))

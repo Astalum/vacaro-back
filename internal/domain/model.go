@@ -55,6 +55,11 @@ type Participant struct {
 	UpdatedAt      time.Time `json:"updated_at"`
 }
 
+type ResponseEditPrincipal struct {
+	Event Event
+	User  User
+}
+
 type AvailabilityInterval struct {
 	ID            string    `json:"id"`
 	ParticipantID string    `json:"participant_id,omitempty"`

@@ -253,6 +253,7 @@ Googleカレンダーへのアクセス許可を保持する。Googleログイ�
 | `display_name` | `VARCHAR(100)` | NO | - | イベント内の表示名 |
 | `role` | `VARCHAR(20)` | NO | `'member'` | `organizer`または`member` |
 | `response_status` | `VARCHAR(20)` | NO | `'pending'` | `pending`または`submitted` |
+| `response_edit_token_hash` | `VARCHAR(64)` | YES | - | ゲストの再回答用トークンのSHA-256ハッシュ |
 | `created_at` | `TIMESTAMPTZ` | NO | `CURRENT_TIMESTAMP` | 参加日時 |
 | `updated_at` | `TIMESTAMPTZ` | NO | `CURRENT_TIMESTAMP` | 更新日時 |
 
@@ -263,7 +264,10 @@ Googleカレンダーへのアクセス許可を保持する。Googleログイ�
 - 外部キー：`user_id -> users.id ON DELETE RESTRICT`
 - 一意制約：`(event_id, user_id)`
 - インデックス：`user_id`
+- 一意部分インデックス：`response_edit_token_hash WHERE response_edit_token_hash IS NOT NULL`
 - イベント作成者については、`role = 'organizer'`の参加者レコードも同一トランザクション内で作成する。
+
+再回答用URLには32バイトのランダムトークンを含める。生のトークンはDBへ保存せず、再発行時はハッシュを置換して旧URLを失効させる。
 
 ### 4.6 `scheduling_groups`
 
@@ -399,8 +403,9 @@ DB制約だけでは他テーブルの値を参照する一部のルールを表
 
 1. 招待URLから参加した時点で`account_type = 'guest'`のユーザーを作成する。
 2. MVPではユーザーIDと有効期限を含む署名・暗号化Cookieを発行し、セッショントークン自体はDBへ保存しない。
-3. Google認証を行った場合は、同一ユーザーへ`auth_accounts`を追加し、`account_type`を`registered`へ変更する。
-4. 期限切れゲストは、参加中イベントの保存期間を考慮した上でバッチ処理により匿名化する。
+3. ゲスト参加時にはイベント専用の再回答用リンクを発行し、別端末ではリンクをイベント限定の回答Cookieへ交換する。
+4. Google認証を行った場合は、同一ユーザーへ`auth_accounts`を追加し、`account_type`を`registered`へ変更する。
+5. 期限切れゲストは、参加中イベントの保存期間を考慮した上でバッチ処理により匿名化する。
 
 Cookieには`HttpOnly`、`Secure`、`SameSite`属性を設定する。サーバー側からの即時失効や複数端末のセッション管理が必要になった場合は、`sessions`テーブルを追加する。
 

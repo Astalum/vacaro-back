@@ -64,6 +64,8 @@ func TestAuthenticatedAPIRoutesRequireSession(t *testing.T) {
 		{http.MethodDelete, "/api/v1/events/event-1/participants/me"},
 		{http.MethodGet, "/api/v1/events/event-1/my-availability"},
 		{http.MethodPut, "/api/v1/events/event-1/my-availability"},
+		{http.MethodGet, "/api/v1/events/event-1/response-user"},
+		{http.MethodPost, "/api/v1/events/event-1/response-edit-link"},
 		{http.MethodPost, "/api/v1/events/event-1/my-availability/copy"},
 		{http.MethodGet, "/api/v1/events/event-1/availability"},
 		{http.MethodGet, "/api/v1/events/event-1/candidates"},
@@ -97,6 +99,7 @@ func TestJSONAPIRoutesRejectMalformedBodies(t *testing.T) {
 		authenticated bool
 	}{
 		{http.MethodPost, "/api/v1/guest-sessions", false},
+		{http.MethodPost, "/api/v1/response-sessions", false},
 		{http.MethodPatch, "/api/v1/me", true},
 		{http.MethodPost, "/api/v1/events", true},
 		{http.MethodPatch, "/api/v1/events/event-1", true},

@@ -19,7 +19,9 @@ type storeStub struct {
 	updateEvent           func(context.Context, repository.UpdateEventParams) (domain.Event, error)
 	setResultsVisibility  func(context.Context, string, string, bool) (domain.Event, error)
 	rotateInviteToken     func(context.Context, string, string, string) error
-	joinEvent             func(context.Context, string, string, string) (domain.Participant, error)
+	joinEvent             func(context.Context, string, string, string, *string) (domain.Participant, error)
+	rotateResponseToken   func(context.Context, string, string, string) error
+	getResponsePrincipal  func(context.Context, string) (domain.ResponseEditPrincipal, error)
 	listParticipants      func(context.Context, string, string) ([]domain.Participant, error)
 	leaveEvent            func(context.Context, string, string) error
 	replaceAvailability   func(context.Context, string, string, []domain.AvailabilityInterval) ([]domain.AvailabilityInterval, error)
@@ -80,8 +82,14 @@ func (s storeStub) SetResultsVisibility(ctx context.Context, eventID, userID str
 func (s storeStub) RotateInviteToken(ctx context.Context, eventID, userID, hash string) error {
 	return s.rotateInviteToken(ctx, eventID, userID, hash)
 }
-func (s storeStub) JoinEvent(ctx context.Context, hash, userID, name string) (domain.Participant, error) {
-	return s.joinEvent(ctx, hash, userID, name)
+func (s storeStub) JoinEvent(ctx context.Context, hash, userID, name string, responseHash *string) (domain.Participant, error) {
+	return s.joinEvent(ctx, hash, userID, name, responseHash)
+}
+func (s storeStub) RotateResponseEditToken(ctx context.Context, eventID, userID, hash string) error {
+	return s.rotateResponseToken(ctx, eventID, userID, hash)
+}
+func (s storeStub) GetResponseEditPrincipal(ctx context.Context, hash string) (domain.ResponseEditPrincipal, error) {
+	return s.getResponsePrincipal(ctx, hash)
 }
 func (s storeStub) ListParticipants(ctx context.Context, eventID, userID string) ([]domain.Participant, error) {
 	return s.listParticipants(ctx, eventID, userID)

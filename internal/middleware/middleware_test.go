@@ -91,6 +91,50 @@ func TestAuthenticate(t *testing.T) {
 	})
 }
 
+func TestAuthenticateEventPrefersMatchingResponseSession(t *testing.T) {
+	manager := testSessionManager(t)
+	handler := AuthenticateEvent(manager, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		session, ok := auth.FromContext(r.Context())
+		if !ok || session.UserID != "response-user" {
+			t.Errorf("session = %#v, %v", session, ok)
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}))
+
+	normalCookies := httptest.NewRecorder()
+	_ = manager.Set(normalCookies, auth.Session{UserID: "normal-user", AccountType: "guest", ExpiresAt: time.Now().Add(time.Hour).Unix()})
+	responseCookies := httptest.NewRecorder()
+	_ = manager.SetResponse(responseCookies, auth.Session{UserID: "response-user", AccountType: "response", EventID: "event-id", ExpiresAt: time.Now().Add(time.Hour).Unix()})
+
+	request := httptest.NewRequest(http.MethodGet, "/api/v1/events/event-id", nil)
+	request.SetPathValue("event_id", "event-id")
+	request.AddCookie(normalCookies.Result().Cookies()[0])
+	request.AddCookie(responseCookies.Result().Cookies()[0])
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusNoContent {
+		t.Fatalf("status = %d, want %d", response.Code, http.StatusNoContent)
+	}
+}
+
+func TestAuthenticateEventRejectsResponseSessionForAnotherEvent(t *testing.T) {
+	manager := testSessionManager(t)
+	handler := AuthenticateEvent(manager, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	}))
+
+	cookies := httptest.NewRecorder()
+	_ = manager.SetResponse(cookies, auth.Session{UserID: "response-user", AccountType: "response", EventID: "other-event", ExpiresAt: time.Now().Add(time.Hour).Unix()})
+	request := httptest.NewRequest(http.MethodGet, "/api/v1/events/event-id", nil)
+	request.SetPathValue("event_id", "event-id")
+	request.AddCookie(cookies.Result().Cookies()[0])
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want %d", response.Code, http.StatusUnauthorized)
+	}
+}
+
 func TestAccessLogPreservesStatus(t *testing.T) {
 	handler := AccessLog(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusCreated)

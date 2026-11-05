@@ -55,7 +55,9 @@ type Store interface {
 	UpdateEvent(context.Context, repository.UpdateEventParams) (domain.Event, error)
 	SetResultsVisibility(context.Context, string, string, bool) (domain.Event, error)
 	RotateInviteToken(context.Context, string, string, string) error
-	JoinEvent(context.Context, string, string, string) (domain.Participant, error)
+	JoinEvent(context.Context, string, string, string, *string) (domain.Participant, error)
+	RotateResponseEditToken(context.Context, string, string, string) error
+	GetResponseEditPrincipal(context.Context, string) (domain.ResponseEditPrincipal, error)
 	ListParticipants(context.Context, string, string) ([]domain.Participant, error)
 	LeaveEvent(context.Context, string, string) error
 	ReplaceAvailability(context.Context, string, string, []domain.AvailabilityInterval) ([]domain.AvailabilityInterval, error)
@@ -142,6 +144,17 @@ type EventWithInvite struct {
 	domain.Event
 	InviteToken string `json:"invite_token"`
 	InviteURL   string `json:"invite_url"`
+}
+
+type JoinedParticipant struct {
+	domain.Participant
+	ResponseEditURL string `json:"response_edit_url,omitempty"`
+}
+
+type ResponseEditAccess struct {
+	EventID   string
+	UserID    string
+	ExpiresAt time.Time
 }
 
 func (s *Service) CreateEvent(ctx context.Context, userID string, input CreateEventInput) (EventWithInvite, error) {
@@ -343,20 +356,88 @@ func (s *Service) RotateInviteToken(ctx context.Context, eventID, userID string)
 	return EventWithInvite{Event: event, InviteToken: token, InviteURL: s.publicAppURL + "/invitations/" + token}, nil
 }
 
-func (s *Service) JoinEvent(ctx context.Context, token, userID, displayName string) (domain.Participant, error) {
+func (s *Service) JoinEvent(ctx context.Context, token, userID, displayName string) (JoinedParticipant, error) {
 	displayName = strings.TrimSpace(displayName)
 	if err := validateDisplayName(displayName); err != nil {
-		return domain.Participant{}, err
+		return JoinedParticipant{}, err
 	}
-	tokenHash := hashToken(token)
-	if event, err := s.store.GetEventByInviteHash(ctx, tokenHash); err == nil {
+	inviteTokenHash := hashToken(token)
+	if event, err := s.store.GetEventByInviteHash(ctx, inviteTokenHash); err == nil {
 		if err := requireEventAcceptingResponses(event, time.Now().UTC()); err != nil {
-			return domain.Participant{}, err
+			return JoinedParticipant{}, err
 		}
 	} else if !errors.Is(err, domain.ErrNotFound) {
-		return domain.Participant{}, err
+		return JoinedParticipant{}, err
 	}
-	return s.store.JoinEvent(ctx, tokenHash, userID, displayName)
+	user, err := s.store.GetUser(ctx, userID)
+	if err != nil {
+		return JoinedParticipant{}, err
+	}
+	var responseToken string
+	var responseTokenHash *string
+	if user.AccountType == "guest" {
+		var hash string
+		responseToken, hash, err = newToken()
+		if err != nil {
+			return JoinedParticipant{}, err
+		}
+		responseTokenHash = &hash
+	}
+	participant, err := s.store.JoinEvent(ctx, inviteTokenHash, userID, displayName, responseTokenHash)
+	if err != nil {
+		return JoinedParticipant{}, err
+	}
+	result := JoinedParticipant{Participant: participant}
+	if responseToken != "" {
+		result.ResponseEditURL = s.publicAppURL + "/responses/edit#" + responseToken
+	}
+	return result, nil
+}
+
+func (s *Service) IssueResponseEditLink(ctx context.Context, eventID, userID string) (string, error) {
+	user, err := s.store.GetUser(ctx, userID)
+	if err != nil {
+		return "", err
+	}
+	if user.AccountType != "guest" {
+		return "", domain.ErrPermissionDenied
+	}
+	event, err := s.store.GetEventForUser(ctx, eventID, userID)
+	if err != nil {
+		return "", err
+	}
+	if err := requireEventAcceptingResponses(event, time.Now().UTC()); err != nil {
+		return "", err
+	}
+	token, tokenHash, err := newToken()
+	if err != nil {
+		return "", err
+	}
+	if err := s.store.RotateResponseEditToken(ctx, eventID, userID, tokenHash); err != nil {
+		return "", err
+	}
+	return s.publicAppURL + "/responses/edit#" + token, nil
+}
+
+func (s *Service) ResolveResponseEditToken(ctx context.Context, token string) (ResponseEditAccess, error) {
+	token = strings.TrimSpace(token)
+	rawToken, decodeErr := base64.RawURLEncoding.DecodeString(token)
+	if decodeErr != nil || len(rawToken) != 32 {
+		return ResponseEditAccess{}, domain.ErrNotFound
+	}
+	principal, err := s.store.GetResponseEditPrincipal(ctx, hashToken(token))
+	if err != nil {
+		return ResponseEditAccess{}, err
+	}
+	now := time.Now().UTC()
+	if err := requireEventAcceptingResponses(principal.Event, now); err != nil {
+		return ResponseEditAccess{}, err
+	}
+	expiresAt := now.Add(30 * 24 * time.Hour)
+	if principal.Event.ResponseDeadlineAt != nil && principal.Event.ResponseDeadlineAt.Before(expiresAt) {
+		expiresAt = *principal.Event.ResponseDeadlineAt
+	}
+	return ResponseEditAccess{EventID: principal.Event.ID, UserID: principal.User.ID, ExpiresAt: expiresAt}, nil
 }
 
 func (s *Service) ListParticipants(ctx context.Context, eventID, userID string) ([]domain.Participant, error) {
