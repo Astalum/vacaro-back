@@ -40,8 +40,8 @@ docker compose up --build
 別のターミナルからAPIを確認します。
 
 ```bash
-curl http://localhost:8080/health
-curl http://localhost:8080/ready
+curl http://localhost:8081/health
+curl http://localhost:8081/ready
 ```
 
 両方から次のレスポンスが返れば、APIとPostgreSQLの起動成功です。
