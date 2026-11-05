@@ -228,6 +228,12 @@ func TestGoogleStoreIntegration(t *testing.T) {
 			t.Errorf("cleanup registered user: %v", err)
 		}
 	})
+	if registered.TimeZone != "Asia/Tokyo" {
+		t.Fatalf("new Google user time zone = %q, want Asia/Tokyo", registered.TimeZone)
+	}
+	if _, err := store.UpdateUser(ctx, registered.ID, registered.DisplayName, "America/New_York"); err != nil {
+		t.Fatal(err)
+	}
 	guest, err := store.CreateGuest(ctx, "Guest", "Asia/Tokyo", time.Now().UTC().Add(time.Hour))
 	if err != nil {
 		t.Fatal(err)
@@ -253,6 +259,9 @@ func TestGoogleStoreIntegration(t *testing.T) {
 	}
 	if merged.ID != registered.ID || merged.AccountType != "registered" || merged.Email == nil || *merged.Email != "updated@example.com" {
 		t.Fatalf("merged user = %#v", merged)
+	}
+	if merged.TimeZone != "America/New_York" {
+		t.Fatalf("returning Google user time zone = %q, want America/New_York", merged.TimeZone)
 	}
 	if hasGoogleAccount, err := store.HasGoogleAccount(ctx, registered.ID); err != nil || !hasGoogleAccount {
 		t.Fatalf("HasGoogleAccount() = %v, %v", hasGoogleAccount, err)

@@ -204,3 +204,7 @@ docker compose exec -T api go test -race ./internal/...
 ```bash
 docker compose run --rm migrate
 ```
+
+### 日時とユーザー設定のタイムゾーン
+
+日時は内部・APIではUTCで管理し、DBセッションと日時デコードもUTCに統一します。ユーザーの入力・表示用タイムゾーンの初期値は`Asia/Tokyo`です。Google再ログイン時は保存済みの設定を保持します。マイグレーション`000014`は新規ユーザーのデフォルトのみ変更し、既存ユーザーの設定は変更しません。

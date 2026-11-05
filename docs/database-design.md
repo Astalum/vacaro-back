@@ -19,7 +19,7 @@ vacaro-backは、参加者があらかじめ用意された候補枠へ回答す
 - DBMSはPostgreSQL 18を使用する。
 - 主キーは推測されにくく、分散環境でも生成できるUUIDとする。
 - すべての日時は`TIMESTAMPTZ`で保存する。DBとAPI間ではUTCを使用する。
-- ユーザーごとに表示用のIANAタイムゾーン名を保持し、イベント日時はUTCだけで管理する。
+- ユーザーごとに入力・表示用のIANAタイムゾーン名を保持する。初期値は`Asia/Tokyo`とし、イベント日時はUTCだけで管理する。
 - 時間区間は開始を含み終了を含まない半開区間`[start_at, end_at)`として扱う。
 - テーブル名とカラム名は`snake_case`、テーブル名は複数形とする。
 - 作成・更新日時は原則として`created_at`と`updated_at`へ記録する。
@@ -150,7 +150,7 @@ erDiagram
 | `id` | `UUID` | NO | `gen_random_uuid()` | ユーザーID |
 | `account_type` | `VARCHAR(20)` | NO | `'guest'` | `guest`または`registered` |
 | `display_name` | `VARCHAR(100)` | NO | - | 表示名 |
-| `time_zone` | `VARCHAR(100)` | NO | `'UTC'` | 日時の入力・表示に使用するIANAタイムゾーン |
+| `time_zone` | `VARCHAR(100)` | NO | `'Asia/Tokyo'` | 日時の入力・表示に使用するIANAタイムゾーン |
 | `email` | `VARCHAR(320)` | YES | - | 連絡先メールアドレス |
 | `guest_expires_at` | `TIMESTAMPTZ` | YES | - | ゲストデータの有効期限 |
 | `anonymized_at` | `TIMESTAMPTZ` | YES | - | 匿名化日時 |

@@ -161,7 +161,7 @@ X-Vacaro-CSRF: same-origin
 | フィールド | 型 | 説明 |
 |---|---|---|
 | `account_type` | string | `guest`または`registered` |
-| `time_zone` | string | 日時の入力・表示に使用するIANAタイムゾーン |
+| `time_zone` | string | 日時の入力・表示に使用するIANAタイムゾーン。初期値は`Asia/Tokyo` |
 | `email` | string/null | Google認証済みユーザーのメールアドレス |
 | `guest_expires_at` | string/null | ゲストの失効日時。登録ユーザーは`null` |
 
@@ -907,6 +907,8 @@ Googleの`sub`をアカウント識別子として使用し、メールアドレ
 ```text
 {PUBLIC_APP_URL}?google_login=success
 ```
+
+新規Googleユーザーのタイムゾーン初期値は`Asia/Tokyo`とし、再ログイン時やゲストからの昇格時は保存済みの設定を保持する。ブラウザのタイムゾーンでは上書きしない。入力・表示にはユーザー設定を使用し、内部管理とAPIレスポンスはUTCとする。
 
 認証を完了できなかった場合もブラウザへJSONを直接表示せず、次へ`303`でリダイレクトする。callbackレスポンスには`Cache-Control: no-store`を設定する。
 
