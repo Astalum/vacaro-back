@@ -1,6 +1,9 @@
 package auth
 
 import (
+	"encoding/base64"
+	"encoding/json"
+	"net/http"
 	"net/http/httptest"
 	"testing"
 )
@@ -61,5 +64,49 @@ func TestBoxRejectsTamperedCiphertext(t *testing.T) {
 	sealed[len(sealed)-1] ^= 0xff
 	if _, err := box.Open(sealed); err == nil {
 		t.Fatal("Open() error = nil, want authentication error")
+	}
+}
+
+func TestOAuthStateUsesIndependentPKCEVerifier(t *testing.T) {
+	manager, err := NewOAuthStateManager(testEncryptionKey, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	firstResponse := httptest.NewRecorder()
+	first, err := manager.Begin(firstResponse, "google_login", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := manager.Begin(httptest.NewRecorder(), "google_calendar", "user")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(first.CodeVerifier) != 43 || first.CodeVerifier == first.State || first.CodeVerifier == first.Nonce || first.CodeVerifier == second.CodeVerifier {
+		t.Fatal("PKCE verifier must be independent and fresh")
+	}
+	cookie := firstResponse.Result().Cookies()[0]
+	if !cookie.HttpOnly || !cookie.Secure || cookie.SameSite != http.SameSiteLaxMode {
+		t.Fatal("OAuth cookie is missing browser protections")
+	}
+	request := httptest.NewRequest("GET", "/callback", nil)
+	request.AddCookie(cookie)
+	got, err := manager.Consume(httptest.NewRecorder(), request, first.State, "google_login")
+	if err != nil || got.CodeVerifier != first.CodeVerifier {
+		t.Fatalf("verifier was not preserved: %v", err)
+	}
+}
+
+func TestOAuthStateRejectsLegacyStateWithoutPKCE(t *testing.T) {
+	manager, _ := NewOAuthStateManager(testEncryptionKey, false)
+	response := httptest.NewRecorder()
+	state, _ := manager.Begin(response, "google_login", "")
+	state.CodeVerifier = ""
+	plain, _ := json.Marshal(state)
+	box, _ := NewBox(testEncryptionKey)
+	sealed, _ := box.Seal(plain)
+	request := httptest.NewRequest("GET", "/callback", nil)
+	request.AddCookie(&http.Cookie{Name: oauthStateCookie, Value: base64.RawURLEncoding.EncodeToString(sealed)})
+	if _, err := manager.Consume(httptest.NewRecorder(), request, state.State, "google_login"); err == nil {
+		t.Fatal("must not downgrade to a flow without PKCE")
 	}
 }

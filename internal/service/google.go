@@ -17,18 +17,18 @@ func (s *Service) GoogleEnabled() bool {
 	return s.google != nil && s.tokenBox != nil
 }
 
-func (s *Service) GoogleLoginURL(state, nonce string) (string, error) {
+func (s *Service) GoogleLoginURL(state, nonce, verifier string) (string, error) {
 	if !s.GoogleEnabled() {
 		return "", domain.ErrGoogleNotConfigured
 	}
-	return s.google.LoginAuthURL(state, nonce), nil
+	return s.google.LoginAuthURL(state, nonce, verifier), nil
 }
 
-func (s *Service) CompleteGoogleLogin(ctx context.Context, code, nonce, currentUserID string) (domain.User, time.Time, error) {
+func (s *Service) CompleteGoogleLogin(ctx context.Context, code, nonce, verifier, currentUserID string) (domain.User, time.Time, error) {
 	if !s.GoogleEnabled() {
 		return domain.User{}, time.Time{}, domain.ErrGoogleNotConfigured
 	}
-	identity, err := s.google.ExchangeIdentity(ctx, code, nonce)
+	identity, err := s.google.ExchangeIdentity(ctx, code, nonce, verifier)
 	if err != nil {
 		return domain.User{}, time.Time{}, fmt.Errorf("%w: %v", domain.ErrOAuthFailed, err)
 	}
@@ -39,18 +39,18 @@ func (s *Service) CompleteGoogleLogin(ctx context.Context, code, nonce, currentU
 	return user, time.Now().UTC().Add(s.registeredTTL), nil
 }
 
-func (s *Service) GoogleCalendarURL(state string) (string, error) {
+func (s *Service) GoogleCalendarURL(state, verifier string) (string, error) {
 	if !s.GoogleEnabled() {
 		return "", domain.ErrGoogleNotConfigured
 	}
-	return s.google.CalendarAuthURL(state), nil
+	return s.google.CalendarAuthURL(state, verifier), nil
 }
 
-func (s *Service) CompleteGoogleCalendar(ctx context.Context, userID, code string) error {
+func (s *Service) CompleteGoogleCalendar(ctx context.Context, userID, code, verifier string) error {
 	if !s.GoogleEnabled() {
 		return domain.ErrGoogleNotConfigured
 	}
-	refreshToken, scopes, err := s.google.ExchangeCalendar(ctx, code)
+	refreshToken, scopes, err := s.google.ExchangeCalendar(ctx, code, verifier)
 	if err != nil {
 		return googleCalendarError(ctx, "connect", err)
 	}

@@ -2,6 +2,7 @@ package google
 
 import (
 	"encoding/json"
+	"golang.org/x/oauth2"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -11,12 +12,13 @@ import (
 )
 
 func TestAuthorizationURLs(t *testing.T) {
+	verifier := oauth2.GenerateVerifier()
 	client := New(Config{
 		ClientID: "client-id", ClientSecret: "client-secret",
 		LoginRedirectURL: "http://localhost/login/callback", CalendarRedirectURL: "http://localhost/calendar/callback",
 	})
 
-	loginURL, err := url.Parse(client.LoginAuthURL("login-state", "login-nonce"))
+	loginURL, err := url.Parse(client.LoginAuthURL("login-state", "login-nonce", verifier))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -31,12 +33,20 @@ func TestAuthorizationURLs(t *testing.T) {
 		}
 	}
 
-	calendarURL, err := url.Parse(client.CalendarAuthURL("calendar-state"))
+	calendarURL, err := url.Parse(client.CalendarAuthURL("calendar-state", verifier))
 	if err != nil {
 		t.Fatal(err)
 	}
 	calendarQuery := calendarURL.Query()
 	calendarScopes := strings.Fields(calendarQuery.Get("scope"))
+	for _, q := range []url.Values{loginQuery, calendarQuery} {
+		if q.Get("response_type") != "code" || q.Get("code_challenge_method") != "S256" || q.Get("code_challenge") != oauth2.S256ChallengeFromVerifier(verifier) {
+			t.Fatalf("PKCE parameters = %v", q)
+		}
+		if q.Has("code_verifier") || q.Has("client_secret") {
+			t.Fatal("credentials must not be included in authorization URL")
+		}
+	}
 	if calendarQuery.Get("state") != "calendar-state" || calendarQuery.Get("access_type") != "offline" || calendarQuery.Get("prompt") != "consent" || !contains(calendarScopes, calendarFreeBusyScope) || !contains(calendarScopes, calendarListScope) || !contains(calendarScopes, CalendarEventsScope) {
 		t.Fatalf("calendar query = %v", calendarQuery)
 	}

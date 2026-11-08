@@ -13,11 +13,12 @@ import (
 const oauthStateCookie = "vacaro_oauth_state"
 
 type OAuthState struct {
-	State     string `json:"state"`
-	Nonce     string `json:"nonce"`
-	Purpose   string `json:"purpose"`
-	UserID    string `json:"user_id,omitempty"`
-	ExpiresAt int64  `json:"expires_at"`
+	State        string `json:"state"`
+	Nonce        string `json:"nonce"`
+	CodeVerifier string `json:"code_verifier"`
+	Purpose      string `json:"purpose"`
+	UserID       string `json:"user_id,omitempty"`
+	ExpiresAt    int64  `json:"expires_at"`
 }
 
 type OAuthStateManager struct {
@@ -42,7 +43,11 @@ func (m *OAuthStateManager) Begin(w http.ResponseWriter, purpose, userID string)
 	if err != nil {
 		return OAuthState{}, err
 	}
-	value := OAuthState{State: state, Nonce: nonce, Purpose: purpose, UserID: userID, ExpiresAt: time.Now().Add(10 * time.Minute).Unix()}
+	verifier, err := randomURLToken(32)
+	if err != nil {
+		return OAuthState{}, err
+	}
+	value := OAuthState{State: state, Nonce: nonce, CodeVerifier: verifier, Purpose: purpose, UserID: userID, ExpiresAt: time.Now().Add(10 * time.Minute).Unix()}
 	plain, _ := json.Marshal(value)
 	sealed, err := m.box.Seal(plain)
 	if err != nil {
@@ -67,7 +72,7 @@ func (m *OAuthStateManager) Consume(w http.ResponseWriter, r *http.Request, expe
 		return OAuthState{}, errors.New("invalid OAuth state")
 	}
 	var value OAuthState
-	if err := json.Unmarshal(plain, &value); err != nil || time.Now().Unix() >= value.ExpiresAt || value.Purpose != purpose || subtle.ConstantTimeCompare([]byte(value.State), []byte(expectedState)) != 1 {
+	if err := json.Unmarshal(plain, &value); err != nil || time.Now().Unix() >= value.ExpiresAt || value.Purpose != purpose || len(value.CodeVerifier) < 43 || len(value.CodeVerifier) > 128 || subtle.ConstantTimeCompare([]byte(value.State), []byte(expectedState)) != 1 {
 		return OAuthState{}, errors.New("invalid OAuth state")
 	}
 	return value, nil

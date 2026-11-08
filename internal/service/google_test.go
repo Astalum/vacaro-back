@@ -12,8 +12,8 @@ import (
 )
 
 type googleProviderStub struct {
-	exchangeIdentity func(context.Context, string, string) (googleclient.Identity, error)
-	exchangeCalendar func(context.Context, string) (string, []string, error)
+	exchangeIdentity func(context.Context, string, string, string) (googleclient.Identity, error)
+	exchangeCalendar func(context.Context, string, string) (string, []string, error)
 	listCalendars    func(context.Context, string) ([]googleclient.Calendar, error)
 	freeBusy         func(context.Context, string, []string, time.Time, time.Time, string) ([]googleclient.BusyInterval, error)
 	upsertEvent      func(context.Context, string, googleclient.CalendarEvent) error
@@ -21,17 +21,17 @@ type googleProviderStub struct {
 	revoke           func(context.Context, string) error
 }
 
-func (s googleProviderStub) LoginAuthURL(state, nonce string) string {
+func (s googleProviderStub) LoginAuthURL(state, nonce, verifier string) string {
 	return "https://accounts.example/login?state=" + state + "&nonce=" + nonce
 }
-func (s googleProviderStub) ExchangeIdentity(ctx context.Context, code, nonce string) (googleclient.Identity, error) {
-	return s.exchangeIdentity(ctx, code, nonce)
+func (s googleProviderStub) ExchangeIdentity(ctx context.Context, code, nonce, verifier string) (googleclient.Identity, error) {
+	return s.exchangeIdentity(ctx, code, nonce, verifier)
 }
-func (s googleProviderStub) CalendarAuthURL(state string) string {
+func (s googleProviderStub) CalendarAuthURL(state, verifier string) string {
 	return "https://accounts.example/calendar?state=" + state
 }
-func (s googleProviderStub) ExchangeCalendar(ctx context.Context, code string) (string, []string, error) {
-	return s.exchangeCalendar(ctx, code)
+func (s googleProviderStub) ExchangeCalendar(ctx context.Context, code, verifier string) (string, []string, error) {
+	return s.exchangeCalendar(ctx, code, verifier)
 }
 func (s googleProviderStub) ListCalendars(ctx context.Context, token string) ([]googleclient.Calendar, error) {
 	return s.listCalendars(ctx, token)
@@ -63,8 +63,8 @@ func TestCompleteGoogleLoginPromotesCurrentGuest(t *testing.T) {
 		}
 		return domain.User{ID: "registered-1", AccountType: "registered"}, nil
 	}}
-	provider := googleProviderStub{exchangeIdentity: func(_ context.Context, code, nonce string) (googleclient.Identity, error) {
-		if code != "code" || nonce != "nonce" {
+	provider := googleProviderStub{exchangeIdentity: func(_ context.Context, code, nonce, verifier string) (googleclient.Identity, error) {
+		if code != "code" || nonce != "nonce" || verifier != "verifier" {
 			t.Fatalf("ExchangeIdentity arguments = %q, %q", code, nonce)
 		}
 		return googleclient.Identity{Subject: "google-sub", Email: "user@example.com", Name: " Google User "}, nil
@@ -72,7 +72,7 @@ func TestCompleteGoogleLoginPromotesCurrentGuest(t *testing.T) {
 	application := New(store, time.Hour, "http://localhost")
 	application.ConfigureGoogle(provider, tokenBoxStub{}, 30*24*time.Hour)
 	before := time.Now()
-	user, expires, err := application.CompleteGoogleLogin(context.Background(), "code", "nonce", "guest-1")
+	user, expires, err := application.CompleteGoogleLogin(context.Background(), "code", "nonce", "verifier", "guest-1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -144,7 +144,7 @@ func TestListGoogleCalendars(t *testing.T) {
 
 func TestGoogleMethodsFailWhenNotConfigured(t *testing.T) {
 	application := New(storeStub{}, time.Hour, "http://localhost")
-	if _, err := application.GoogleLoginURL("state", "nonce"); !errors.Is(err, domain.ErrGoogleNotConfigured) {
+	if _, err := application.GoogleLoginURL("state", "nonce", "verifier"); !errors.Is(err, domain.ErrGoogleNotConfigured) {
 		t.Fatalf("GoogleLoginURL() error = %v", err)
 	}
 }

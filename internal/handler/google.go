@@ -33,7 +33,7 @@ func (a *API) startGoogleLogin(w http.ResponseWriter, r *http.Request) {
 		writeAPIError(w, r, err)
 		return
 	}
-	authorizationURL, err := a.service.GoogleLoginURL(state.State, state.Nonce)
+	authorizationURL, err := a.service.GoogleLoginURL(state.State, state.Nonce, state.CodeVerifier)
 	if err != nil {
 		writeAPIError(w, r, err)
 		return
@@ -54,7 +54,7 @@ func (a *API) completeGoogleLogin(w http.ResponseWriter, r *http.Request) {
 		a.redirectGoogleLoginError(w, r, err)
 		return
 	}
-	user, expiresAt, err := a.service.CompleteGoogleLogin(r.Context(), r.URL.Query().Get("code"), state.Nonce, state.UserID)
+	user, expiresAt, err := a.service.CompleteGoogleLogin(r.Context(), r.URL.Query().Get("code"), state.Nonce, state.CodeVerifier, state.UserID)
 	if err != nil {
 		a.redirectGoogleLoginError(w, r, err)
 		return
@@ -91,7 +91,7 @@ func (a *API) startGoogleCalendar(w http.ResponseWriter, r *http.Request) {
 		writeAPIError(w, r, err)
 		return
 	}
-	authorizationURL, err := a.service.GoogleCalendarURL(state.State)
+	authorizationURL, err := a.service.GoogleCalendarURL(state.State, state.CodeVerifier)
 	if err != nil {
 		writeAPIError(w, r, err)
 		return
@@ -110,7 +110,7 @@ func (a *API) completeGoogleCalendar(w http.ResponseWriter, r *http.Request) {
 		a.redirectGoogleCalendarError(w, r, domain.ErrPermissionDenied)
 		return
 	}
-	if err := a.service.CompleteGoogleCalendar(r.Context(), state.UserID, r.URL.Query().Get("code")); err != nil {
+	if err := a.service.CompleteGoogleCalendar(r.Context(), state.UserID, r.URL.Query().Get("code"), state.CodeVerifier); err != nil {
 		a.redirectGoogleCalendarError(w, r, err)
 		return
 	}

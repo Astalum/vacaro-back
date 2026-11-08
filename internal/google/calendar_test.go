@@ -12,7 +12,7 @@ import (
 
 func TestFreeBusyUsesAccessibleCalendarScope(t *testing.T) {
 	client := New(Config{ClientID: "test"})
-	if !strings.Contains(client.CalendarAuthURL("state"), "calendar.events.freebusy") {
+	if !strings.Contains(client.CalendarAuthURL("state", strings.Repeat("v", 43)), "calendar.events.freebusy") {
 		t.Fatal("missing scope for shared calendars")
 	}
 }
@@ -115,7 +115,7 @@ func TestExchangeCalendarRejectsIncompleteReadPermissions(t *testing.T) {
 			defer server.Close()
 			client := New(Config{ClientID: "test"})
 			client.calendar.Endpoint.TokenURL = server.URL
-			token, _, err := client.ExchangeCalendar(t.Context(), "code")
+			token, _, err := client.ExchangeCalendar(t.Context(), "code", strings.Repeat("v", 43))
 			if scopes == calendarListScope || scopes == calendarFreeBusyScope {
 				var problem *CalendarError
 				if !errors.As(err, &problem) || problem.Kind != "permission_required" || token != "" {

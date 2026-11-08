@@ -81,12 +81,15 @@ func New(config Config) *Client {
 	}
 }
 
-func (c *Client) LoginAuthURL(state, nonce string) string {
-	return c.login.AuthCodeURL(state, oauth2.SetAuthURLParam("nonce", nonce))
+func (c *Client) LoginAuthURL(state, nonce, verifier string) string {
+	return c.login.AuthCodeURL(state, oauth2.SetAuthURLParam("nonce", nonce), oauth2.S256ChallengeOption(verifier))
 }
 
-func (c *Client) ExchangeIdentity(ctx context.Context, code, expectedNonce string) (Identity, error) {
-	token, err := c.login.Exchange(ctx, code)
+func (c *Client) ExchangeIdentity(ctx context.Context, code, expectedNonce, verifier string) (Identity, error) {
+	if !validPKCEVerifier(verifier) {
+		return Identity{}, errors.New("invalid PKCE verifier")
+	}
+	token, err := c.login.Exchange(ctx, code, oauth2.VerifierOption(verifier))
 	if err != nil {
 		return Identity{}, fmt.Errorf("exchange Google login code: %w", err)
 	}
@@ -114,12 +117,15 @@ func (c *Client) ExchangeIdentity(ctx context.Context, code, expectedNonce strin
 	return Identity{Subject: payload.Subject, Email: email, Name: name}, nil
 }
 
-func (c *Client) CalendarAuthURL(state string) string {
-	return c.calendar.AuthCodeURL(state, oauth2.AccessTypeOffline, oauth2.SetAuthURLParam("prompt", "consent"), oauth2.SetAuthURLParam("include_granted_scopes", "true"))
+func (c *Client) CalendarAuthURL(state, verifier string) string {
+	return c.calendar.AuthCodeURL(state, oauth2.AccessTypeOffline, oauth2.SetAuthURLParam("prompt", "consent"), oauth2.SetAuthURLParam("include_granted_scopes", "true"), oauth2.S256ChallengeOption(verifier))
 }
 
-func (c *Client) ExchangeCalendar(ctx context.Context, code string) (string, []string, error) {
-	token, err := c.calendar.Exchange(ctx, code)
+func (c *Client) ExchangeCalendar(ctx context.Context, code, verifier string) (string, []string, error) {
+	if !validPKCEVerifier(verifier) {
+		return "", nil, errors.New("invalid PKCE verifier")
+	}
+	token, err := c.calendar.Exchange(ctx, code, oauth2.VerifierOption(verifier))
 	if err != nil {
 		return "", nil, fmt.Errorf("exchange Google Calendar code: %w", err)
 	}
@@ -357,4 +363,17 @@ func hasScope(scopes []string, alternatives ...string) bool {
 		}
 	}
 	return false
+}
+
+func validPKCEVerifier(verifier string) bool {
+	if len(verifier) < 43 || len(verifier) > 128 {
+		return false
+	}
+	for _, c := range verifier {
+		if (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '-' || c == '.' || c == '_' || c == '~' {
+			continue
+		}
+		return false
+	}
+	return true
 }

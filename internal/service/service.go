@@ -33,10 +33,10 @@ type tokenBox interface {
 }
 
 type GoogleProvider interface {
-	LoginAuthURL(string, string) string
-	ExchangeIdentity(context.Context, string, string) (googleclient.Identity, error)
-	CalendarAuthURL(string) string
-	ExchangeCalendar(context.Context, string) (string, []string, error)
+	LoginAuthURL(string, string, string) string
+	ExchangeIdentity(context.Context, string, string, string) (googleclient.Identity, error)
+	CalendarAuthURL(string, string) string
+	ExchangeCalendar(context.Context, string, string) (string, []string, error)
 	ListCalendars(context.Context, string) ([]googleclient.Calendar, error)
 	FreeBusy(context.Context, string, []string, time.Time, time.Time, string) ([]googleclient.BusyInterval, error)
 	UpsertCalendarEvent(context.Context, string, googleclient.CalendarEvent) error
