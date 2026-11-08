@@ -34,8 +34,10 @@ type storeStub struct {
 	saveGoogleCalendar    func(context.Context, string, []byte, []string) error
 	getGoogleCalendar     func(context.Context, string) ([]byte, []string, error)
 	deleteGoogleCalendar  func(context.Context, string) ([]byte, error)
+	resolveDestination    func(context.Context, string, func(string) (string, error)) (string, error)
+	getDestination        func(context.Context, string) (string, error)
 	hasGoogleAccount      func(context.Context, string) (bool, error)
-	upsertCalendarSync    func(context.Context, string, *string, string, string) (domain.ConfirmationCalendarSync, error)
+	upsertCalendarSync    func(context.Context, string, *string, string, string, string) (domain.ConfirmationCalendarSync, error)
 	listCalendarSyncs     func(context.Context, string, string) ([]domain.ConfirmationCalendarSync, error)
 	clearCalendarSync     func(context.Context, string, *string) error
 	listGroups            func(context.Context, string, string) ([]domain.SchedulingGroup, error)
@@ -130,11 +132,11 @@ func (s storeStub) DeleteGoogleCalendarConnection(ctx context.Context, userID st
 func (s storeStub) HasGoogleAccount(ctx context.Context, userID string) (bool, error) {
 	return s.hasGoogleAccount(ctx, userID)
 }
-func (s storeStub) UpsertConfirmationCalendarSync(ctx context.Context, eventID string, groupID *string, userID, status string) (domain.ConfirmationCalendarSync, error) {
+func (s storeStub) UpsertConfirmationCalendarSync(ctx context.Context, eventID string, groupID *string, userID, calendarID, status string) (domain.ConfirmationCalendarSync, error) {
 	if s.upsertCalendarSync == nil {
 		return domain.ConfirmationCalendarSync{EventID: eventID, GroupID: groupID, UserID: userID, Status: status}, nil
 	}
-	return s.upsertCalendarSync(ctx, eventID, groupID, userID, status)
+	return s.upsertCalendarSync(ctx, eventID, groupID, userID, calendarID, status)
 }
 func (s storeStub) ListConfirmationCalendarSyncs(ctx context.Context, eventID, userID string) ([]domain.ConfirmationCalendarSync, error) {
 	if s.listCalendarSyncs == nil {
@@ -174,4 +176,17 @@ func (s storeStub) ConfirmGroup(ctx context.Context, eventID, groupID, userID st
 }
 func (s storeStub) ReopenGroup(ctx context.Context, eventID, groupID, userID string) (domain.SchedulingGroup, error) {
 	return s.reopenGroup(ctx, eventID, groupID, userID)
+}
+
+func (s storeStub) ResolveGoogleCalendarDestination(ctx context.Context, userID string, resolve func(string) (string, error)) (string, error) {
+	if s.resolveDestination != nil {
+		return s.resolveDestination(ctx, userID, resolve)
+	}
+	return resolve("")
+}
+func (s storeStub) GetGoogleCalendarDestination(ctx context.Context, userID string) (string, error) {
+	if s.getDestination != nil {
+		return s.getDestination(ctx, userID)
+	}
+	return "vacaro-calendar", nil
 }

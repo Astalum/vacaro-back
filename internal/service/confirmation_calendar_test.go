@@ -28,9 +28,9 @@ func TestSyncOwnConfirmationCalendarRetriesAndStoresSuccess(t *testing.T) {
 			return event, nil
 		},
 		getGoogleCalendar: func(context.Context, string) ([]byte, []string, error) {
-			return []byte("sealed:refresh-token"), []string{googleclient.CalendarEventsScope}, nil
+			return []byte("sealed:refresh-token"), []string{googleclient.CalendarAppCreatedScope}, nil
 		},
-		upsertCalendarSync: func(_ context.Context, eventID string, groupID *string, userID, status string) (domain.ConfirmationCalendarSync, error) {
+		upsertCalendarSync: func(_ context.Context, eventID string, groupID *string, userID, calendarID, status string) (domain.ConfirmationCalendarSync, error) {
 			storedStatus = status
 			return domain.ConfirmationCalendarSync{EventID: eventID, GroupID: groupID, UserID: userID, Status: status}, nil
 		},
@@ -53,7 +53,7 @@ func TestSyncOwnConfirmationCalendarRetriesAndStoresSuccess(t *testing.T) {
 	if result.Status != "synced" || storedStatus != "synced" {
 		t.Fatalf("sync = %#v, stored status = %q", result, storedStatus)
 	}
-	if gotEvent.Summary != event.Title || !gotEvent.StartAt.Equal(*event.ConfirmedStartAt) {
+	if gotEvent.CalendarID != "vacaro-calendar" || gotEvent.Summary != event.Title || !gotEvent.StartAt.Equal(*event.ConfirmedStartAt) {
 		t.Fatalf("calendar event = %#v", gotEvent)
 	}
 }
@@ -66,9 +66,9 @@ func TestSyncOwnConfirmationCalendarStoresProviderFailure(t *testing.T) {
 			return event, nil
 		},
 		getGoogleCalendar: func(context.Context, string) ([]byte, []string, error) {
-			return []byte("sealed:refresh-token"), []string{googleclient.CalendarEventsScope}, nil
+			return []byte("sealed:refresh-token"), []string{googleclient.CalendarAppCreatedScope}, nil
 		},
-		upsertCalendarSync: func(_ context.Context, _ string, _ *string, _, status string) (domain.ConfirmationCalendarSync, error) {
+		upsertCalendarSync: func(_ context.Context, _ string, _ *string, _, _, status string) (domain.ConfirmationCalendarSync, error) {
 			storedStatus = status
 			return domain.ConfirmationCalendarSync{Status: status}, nil
 		},
@@ -109,9 +109,9 @@ func TestConfirmEventRecordsAutomaticCalendarFailureWithoutRollingBackConfirmati
 			return []domain.Participant{{UserID: "member"}}, nil
 		},
 		getGoogleCalendar: func(context.Context, string) ([]byte, []string, error) {
-			return []byte("sealed:refresh-token"), []string{googleclient.CalendarEventsScope}, nil
+			return []byte("sealed:refresh-token"), []string{googleclient.CalendarAppCreatedScope}, nil
 		},
-		upsertCalendarSync: func(_ context.Context, _ string, _ *string, _ string, status string) (domain.ConfirmationCalendarSync, error) {
+		upsertCalendarSync: func(_ context.Context, _ string, _ *string, _ string, _ string, status string) (domain.ConfirmationCalendarSync, error) {
 			storedStatus = status
 			return domain.ConfirmationCalendarSync{Status: status}, nil
 		},
@@ -180,5 +180,72 @@ func TestGetConfirmationCalendarStatusReportsMissingWritePermission(t *testing.T
 	}
 	if status.ConnectionStatus != "write_permission_required" || len(status.Syncs) != 1 {
 		t.Fatalf("status = %#v", status)
+	}
+}
+
+func TestLegacyCalendarWriteGrantRequiresReconnect(t *testing.T) {
+	for _, scope := range []string{"https://www.googleapis.com/auth/calendar.events", "https://www.googleapis.com/auth/calendar"} {
+		store := storeStub{
+			getEventForUser: func(context.Context, string, string) (domain.Event, error) { return confirmedCalendarTestEvent(), nil },
+			getGoogleCalendar: func(context.Context, string) ([]byte, []string, error) {
+				return []byte("sealed:refresh"), []string{scope}, nil
+			},
+		}
+		app := New(store, time.Hour, "")
+		app.ConfigureGoogle(googleProviderStub{}, tokenBoxStub{}, time.Hour)
+		_, err := app.SyncOwnConfirmationCalendar(context.Background(), "event-1", nil, "user")
+		if !errors.Is(err, domain.ErrCalendarWritePermission) {
+			t.Fatalf("legacy grant must not write to primary: %v", err)
+		}
+		status, err := app.GetConfirmationCalendarStatus(context.Background(), "event-1", "user")
+		if err != nil || status.ConnectionStatus != "write_permission_required" {
+			t.Fatalf("status = %#v, %v", status, err)
+		}
+	}
+}
+
+func TestDedicatedCalendarProvisioningFailureRecordsFailure(t *testing.T) {
+	status := ""
+	store := storeStub{
+		getEventForUser: func(context.Context, string, string) (domain.Event, error) { return confirmedCalendarTestEvent(), nil },
+		getGoogleCalendar: func(context.Context, string) ([]byte, []string, error) {
+			return []byte("sealed:refresh"), []string{googleclient.CalendarAppCreatedScope}, nil
+		},
+		upsertCalendarSync: func(_ context.Context, _ string, _ *string, _, _, value string) (domain.ConfirmationCalendarSync, error) {
+			status = value
+			return domain.ConfirmationCalendarSync{}, nil
+		},
+	}
+	app := New(store, time.Hour, "")
+	app.ConfigureGoogle(googleProviderStub{ensureCalendar: func(context.Context, string, string, string) (string, error) {
+		return "", errors.New("creation failed")
+	}}, tokenBoxStub{}, time.Hour)
+	_, err := app.SyncOwnConfirmationCalendar(context.Background(), "event-1", nil, "user")
+	if !errors.Is(err, domain.ErrCalendarSyncFailed) || status != "failed" {
+		t.Fatalf("error = %v, status = %s", err, status)
+	}
+}
+
+func TestDeleteConfirmationUsesSavedDestinationWithoutCreating(t *testing.T) {
+	for _, id := range []string{"", "saved-vacaro-calendar"} {
+		deleted := false
+		store := storeStub{
+			getGoogleCalendar: func(context.Context, string) ([]byte, []string, error) {
+				return []byte("sealed:refresh"), []string{googleclient.CalendarAppCreatedScope}, nil
+			},
+			getDestination: func(context.Context, string) (string, error) { return id, nil },
+		}
+		app := New(store, time.Hour, "")
+		app.ConfigureGoogle(googleProviderStub{deleteEvent: func(_ context.Context, token, calendarID, eventID string) error {
+			deleted = true
+			if token != "refresh" || calendarID != id || eventID != "vacaro123" {
+				t.Fatalf("wrong delete target: %q, %q", calendarID, eventID)
+			}
+			return nil
+		}}, tokenBoxStub{}, time.Hour)
+		app.deleteConfirmationCalendars(context.Background(), []domain.Participant{{UserID: "member"}}, "vacaro123", "event-1", "")
+		if deleted != (id != "") {
+			t.Fatalf("deleted = %v for ID %q", deleted, id)
+		}
 	}
 }

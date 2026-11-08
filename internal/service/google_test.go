@@ -14,10 +14,11 @@ import (
 type googleProviderStub struct {
 	exchangeIdentity func(context.Context, string, string, string) (googleclient.Identity, error)
 	exchangeCalendar func(context.Context, string, string) (string, []string, error)
+	ensureCalendar   func(context.Context, string, string, string) (string, error)
 	listCalendars    func(context.Context, string) ([]googleclient.Calendar, error)
 	freeBusy         func(context.Context, string, []string, time.Time, time.Time, string) ([]googleclient.BusyInterval, error)
 	upsertEvent      func(context.Context, string, googleclient.CalendarEvent) error
-	deleteEvent      func(context.Context, string, string) error
+	deleteEvent      func(context.Context, string, string, string) error
 	revoke           func(context.Context, string) error
 }
 
@@ -42,8 +43,8 @@ func (s googleProviderStub) FreeBusy(ctx context.Context, token string, ids []st
 func (s googleProviderStub) UpsertCalendarEvent(ctx context.Context, token string, event googleclient.CalendarEvent) error {
 	return s.upsertEvent(ctx, token, event)
 }
-func (s googleProviderStub) DeleteCalendarEvent(ctx context.Context, token, eventID string) error {
-	return s.deleteEvent(ctx, token, eventID)
+func (s googleProviderStub) DeleteCalendarEvent(ctx context.Context, token, calendarID, eventID string) error {
+	return s.deleteEvent(ctx, token, calendarID, eventID)
 }
 func (s googleProviderStub) Revoke(ctx context.Context, token string) error {
 	return s.revoke(ctx, token)
@@ -121,7 +122,7 @@ func TestListGoogleCalendars(t *testing.T) {
 			return []byte("sealed:refresh-token"), []string{
 				"https://www.googleapis.com/auth/calendar.freebusy",
 				"https://www.googleapis.com/auth/calendar.calendarlist.readonly",
-				googleclient.CalendarEventsScope,
+				googleclient.CalendarAppCreatedScope,
 			}, nil
 		},
 	}
@@ -260,5 +261,48 @@ func TestPreviewExcludesHolidayIDsFromSavedAndLegacySelections(t *testing.T) {
 				t.Fatal(err)
 			}
 		})
+	}
+}
+
+func (s googleProviderStub) EnsureCalendar(ctx context.Context, token, current, zone string) (string, error) {
+	if s.ensureCalendar != nil {
+		return s.ensureCalendar(ctx, token, current, zone)
+	}
+	return "vacaro-calendar", nil
+}
+
+func TestCompleteGoogleCalendarProvisionsOnlyWithDedicatedCalendarGrant(t *testing.T) {
+	for _, write := range []bool{false, true} {
+		saved, provisioned := false, false
+		scopes := []string{"https://www.googleapis.com/auth/calendar.events.freebusy", "https://www.googleapis.com/auth/calendar.calendarlist.readonly"}
+		if write {
+			scopes = append(scopes, googleclient.CalendarAppCreatedScope)
+		}
+		store := storeStub{
+			saveGoogleCalendar: func(context.Context, string, []byte, []string) error { saved = true; return nil },
+			resolveDestination: func(_ context.Context, userID string, resolve func(string) (string, error)) (string, error) {
+				if !saved || userID != "user" {
+					t.Fatal("connection must be saved before provisioning")
+				}
+				return resolve("stored-calendar")
+			},
+		}
+		app := New(store, time.Hour, "")
+		app.ConfigureGoogle(googleProviderStub{
+			exchangeCalendar: func(context.Context, string, string) (string, []string, error) { return "refresh", scopes, nil },
+			ensureCalendar: func(_ context.Context, token, current, zone string) (string, error) {
+				provisioned = true
+				if token != "refresh" || current != "stored-calendar" || zone != "Asia/Tokyo" {
+					t.Fatal("incorrect calendar provisioning parameters")
+				}
+				return current, nil
+			},
+		}, tokenBoxStub{}, time.Hour)
+		if err := app.CompleteGoogleCalendar(context.Background(), "user", "code", "verifier"); err != nil {
+			t.Fatal(err)
+		}
+		if !saved || provisioned != write {
+			t.Fatalf("saved = %v, provisioned = %v", saved, provisioned)
+		}
 	}
 }

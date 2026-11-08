@@ -414,7 +414,7 @@ Cookieには`HttpOnly`、`Secure`、`SameSite`属性を設定する。サーバ�
 - Googleの予定タイトル、説明、参加者などの不要な個人情報は保存しない。
 - FreeBusy APIなどから取得した情報を利用し、アプリ内では参加可能時間またはビジー時間との差分だけを扱う。
 - カレンダーから生成した参加可能時間を永続化する場合は、`source = 'google_calendar'`とする。
-- 確定日時は、書き込み権限を許可した参加者のメインカレンダーへ固定IDでupsertし、確定解除時に削除する。
+- 確定日時は、書き込み権限を許可した参加者の専用カレンダー「Vacaro」へ固定IDでupsertし、確定解除時に削除する。
 - 自動登録の成功・失敗は`confirmation_calendar_syncs`へ保存し、失敗時は確定処理を取り消さず、確定結果画面から本人が再試行できるようにする。
 - OAuth Scopeは必要最小限とする。
 - Refresh Tokenは暗号化して保存し、暗号鍵はDBとは別のSecret Managerで管理する。
@@ -490,3 +490,9 @@ Google連携用テーブルは、`000005_create_google_integrations`で追加す
 - 必要時間を常に固定するか、複数候補時間を許可するか
 - Googleカレンダーから「空き時間」を取り込むか、「予定あり時間」を除外するか
 - 主催者以外による日程確定を許可するか
+
+## 専用カレンダーへの同期（マイグレーション000015）
+
+`google_calendar_destinations` に `user_id`（usersへの外部キー・主キー）、`calendar_id`（空・primary禁止）、`created_at`、`updated_at`を保持する。トークン解除でもIDを削除しない。利用者行のFOR UPDATEロックで初回作成を含め直列化し、Google APIで作成または既存IDを確認してからIDを保存する。同名のカレンダーを検索・採用しない。
+
+`confirmation_calendar_syncs.calendar_id`（TEXT、NULL可）は実際の同期先を記録する。NULLは旧メインカレンダーへの記録。登録済みとして表示するのは現在の専用カレンダーIDと一致する記録のみで、失敗記録は再試行用に表示する。専用カレンダーを再作成した場合、旧IDへの成功記録を現在の登録済みとして扱わない。

@@ -521,7 +521,7 @@ PUT /api/v1/events/{event_id}/confirmation
 - 主催者のみ実行可能
 - `whole_event`と`groups`のどちらでも確定可能。`groups`では全体候補の確定日時として保存する
 - 対象参加者が参加している他の`open`イベントでは、確定時間と重なる参加可能時間を同一トランザクションで差し引く
-- Googleカレンダーの予定書き込み権限を持つ対象参加者には、確定日時をメインカレンダーへ登録する。外部APIの失敗は確定処理を巻き戻さず、参加者ごとの同期状態を`failed`として保存する
+- Googleカレンダーの予定書き込み権限を持つ対象参加者には、確定日時を専用カレンダー「Vacaro」へ登録する。外部APIの失敗は確定処理を巻き戻さず、参加者ごとの同期状態を`failed`として保存する
 
 Response: `200`、`status=confirmed`のEvent。
 
@@ -567,7 +567,7 @@ Content-Type: application/json
 {"group_id":null}
 ```
 
-現在ユーザー自身のメインカレンダーへ、確定予定を固定IDでupsertする。全体予定は`group_id=null`、小グループ予定は対象グループIDを指定し、現在ユーザーがそのグループのメンバーである場合だけ実行できる。成功時は`200`と同期結果を返す。Google側の一時的な失敗は`502 calendar_sync_failed`として返し、状態を`failed`で保存するため再試行できる。
+現在ユーザー自身の専用カレンダー「Vacaro」へ、確定予定を固定IDでupsertする。全体予定は`group_id=null`、小グループ予定は対象グループIDを指定し、現在ユーザーがそのグループのメンバーである場合だけ実行できる。成功時は`200`と同期結果を返す。Google側の一時的な失敗は`502 calendar_sync_failed`として返し、状態を`failed`で保存するため再試行できる。
 
 ## 8. 小グループ
 
@@ -686,7 +686,7 @@ PUT /api/v1/events/{event_id}/groups/{group_id}/confirmation
 - グループに1人以上のメンバーが存在すること
 - 主催者のみ実行可能
 - グループメンバーが参加している他の`open`イベントでは、確定時間と重なる参加可能時間を同一トランザクションで差し引く
-- Googleカレンダーの予定書き込み権限を持つグループメンバーには、確定日時をメインカレンダーへ登録する
+- Googleカレンダーの予定書き込み権限を持つグループメンバーには、確定日時を専用カレンダー「Vacaro」へ登録する
 
 Response: `200`、`data`は更新後のSchedulingGroup。全グループに確定日時が設定された場合、同一トランザクションでイベントを`confirmed`へ変更する。
 
@@ -1050,3 +1050,7 @@ stateDiagram-v2
 - 未定義パスの`404`と許可されていないHTTPメソッドの`405`は、現時点ではGo標準Muxのプレーンテキスト応答となる。
 - Google OAuthの実環境動作にはGoogle Cloud ConsoleのOAuthクライアントと許可済みリダイレクトURIが必要。
 - `SESSION_KEY`と`TOKEN_ENCRYPTION_KEY`は別々の32バイト鍵をBase64化し、Secret Manager等から供給する。
+
+## 専用カレンダーへの登録権限
+
+新しい連携URLは`calendar.events.freebusy`、`calendar.calendarlist.readonly`、`calendar.app.created`を要求する。`calendar.events`を持つだけの旧接続は`write_enabled=false`、確定画面では`write_permission_required`となり、再接続を案内する。読み取り機能は維持する。専用カレンダーの管理権限を許可した連携完了時に「Vacaro」を作成し、再接続では保存済みIDを再利用する。予定登録時にも存在を確認し、削除済みの場合だけ再作成する。確定解除の削除ではカレンダーを作成しない。メインカレンダーへのフォールバックは行わない。

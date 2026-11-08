@@ -169,7 +169,7 @@ func TestConfirmGroupSyncsOnlyGroupMemberCalendar(t *testing.T) {
 			if userID != "member-user" {
 				t.Fatalf("calendar lookup user = %q", userID)
 			}
-			return []byte("sealed:refresh-token"), []string{googleclient.CalendarEventsScope}, nil
+			return []byte("sealed:refresh-token"), []string{googleclient.CalendarAppCreatedScope}, nil
 		},
 	}
 	var gotEvent googleclient.CalendarEvent

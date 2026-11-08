@@ -58,7 +58,19 @@ func (s *Service) CompleteGoogleCalendar(ctx context.Context, userID, code, veri
 	if err != nil {
 		return err
 	}
-	return s.store.SaveGoogleCalendarConnection(ctx, userID, ciphertext, scopes)
+	if err := s.store.SaveGoogleCalendarConnection(ctx, userID, ciphertext, scopes); err != nil {
+		return err
+	}
+	if hasGoogleCalendarScope(scopes, googleclient.CalendarAppCreatedScope) {
+		user, err := s.store.GetUser(ctx, userID)
+		if err != nil {
+			return err
+		}
+		if _, err := s.ensureGoogleCalendarDestination(ctx, userID, refreshToken, user.TimeZone); err != nil {
+			return googleCalendarError(ctx, "create_destination", err)
+		}
+	}
+	return nil
 }
 
 func (s *Service) DisconnectGoogleCalendar(ctx context.Context, userID string) error {
@@ -109,7 +121,7 @@ func (s *Service) ListGoogleCalendars(ctx context.Context, userID string) (Googl
 	}
 	return GoogleCalendarOptions{
 		Calendars:    importable,
-		WriteEnabled: hasGoogleCalendarScope(scopes, googleclient.CalendarEventsScope),
+		WriteEnabled: hasGoogleCalendarScope(scopes, googleclient.CalendarAppCreatedScope),
 	}, nil
 }
 

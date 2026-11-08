@@ -39,6 +39,9 @@ func TestAuthorizationURLs(t *testing.T) {
 	}
 	calendarQuery := calendarURL.Query()
 	calendarScopes := strings.Fields(calendarQuery.Get("scope"))
+	if len(calendarScopes) != 3 || contains(calendarScopes, "https://www.googleapis.com/auth/calendar.events") || calendarQuery.Get("include_granted_scopes") == "true" {
+		t.Fatalf("calendar authorization must request only the dedicated-calendar and read scopes: %v", calendarQuery)
+	}
 	for _, q := range []url.Values{loginQuery, calendarQuery} {
 		if q.Get("response_type") != "code" || q.Get("code_challenge_method") != "S256" || q.Get("code_challenge") != oauth2.S256ChallengeFromVerifier(verifier) {
 			t.Fatalf("PKCE parameters = %v", q)
@@ -47,7 +50,7 @@ func TestAuthorizationURLs(t *testing.T) {
 			t.Fatal("credentials must not be included in authorization URL")
 		}
 	}
-	if calendarQuery.Get("state") != "calendar-state" || calendarQuery.Get("access_type") != "offline" || calendarQuery.Get("prompt") != "consent" || !contains(calendarScopes, calendarFreeBusyScope) || !contains(calendarScopes, calendarListScope) || !contains(calendarScopes, CalendarEventsScope) {
+	if calendarQuery.Get("state") != "calendar-state" || calendarQuery.Get("access_type") != "offline" || calendarQuery.Get("prompt") != "consent" || !contains(calendarScopes, calendarFreeBusyScope) || !contains(calendarScopes, calendarListScope) || !contains(calendarScopes, CalendarAppCreatedScope) {
 		t.Fatalf("calendar query = %v", calendarQuery)
 	}
 }
@@ -59,10 +62,10 @@ func TestUpsertCalendarEventCreatesThenUpdatesExistingEvent(t *testing.T) {
 		case "/token":
 			w.Header().Set("Content-Type", "application/json")
 			_, _ = w.Write([]byte(`{"access_token":"access-token","token_type":"Bearer"}`))
-		case "/calendars/primary/events":
+		case "/calendars/vacaro-calendar/events":
 			methods = append(methods, r.Method+" "+r.URL.RequestURI())
 			w.WriteHeader(http.StatusConflict)
-		case "/calendars/primary/events/vacaro123":
+		case "/calendars/vacaro-calendar/events/vacaro123":
 			methods = append(methods, r.Method+" "+r.URL.RequestURI())
 			var payload struct {
 				ID      string `json:"id"`
@@ -90,14 +93,14 @@ func TestUpsertCalendarEventCreatesThenUpdatesExistingEvent(t *testing.T) {
 	client.calendarAPIBaseURL = server.URL
 	startAt := time.Date(2026, 10, 10, 10, 15, 0, 0, time.FixedZone("JST", 9*60*60))
 	if err := client.UpsertCalendarEvent(t.Context(), "refresh-token", CalendarEvent{
-		ID: "vacaro123", Summary: "定例", Description: "vacaroで確定", StartAt: startAt,
+		CalendarID: "vacaro-calendar", ID: "vacaro123", Summary: "定例", Description: "vacaroで確定", StartAt: startAt,
 		EndAt: startAt.Add(time.Hour), TimeZone: "Asia/Tokyo",
 	}); err != nil {
 		t.Fatal(err)
 	}
 	want := []string{
-		"POST /calendars/primary/events?sendUpdates=none",
-		"PUT /calendars/primary/events/vacaro123?sendUpdates=none",
+		"POST /calendars/vacaro-calendar/events?sendUpdates=none",
+		"PUT /calendars/vacaro-calendar/events/vacaro123?sendUpdates=none",
 	}
 	if len(methods) != len(want) || methods[0] != want[0] || methods[1] != want[1] {
 		t.Fatalf("requests = %#v, want %#v", methods, want)
@@ -111,7 +114,7 @@ func TestDeleteCalendarEventAllowsMissingEvent(t *testing.T) {
 			_, _ = w.Write([]byte(`{"access_token":"access-token","token_type":"Bearer"}`))
 			return
 		}
-		if r.Method != http.MethodDelete || r.URL.RequestURI() != "/calendars/primary/events/vacaro123?sendUpdates=none" {
+		if r.Method != http.MethodDelete || r.URL.RequestURI() != "/calendars/vacaro-calendar/events/vacaro123?sendUpdates=none" {
 			t.Fatalf("request = %s %s", r.Method, r.URL.RequestURI())
 		}
 		w.WriteHeader(http.StatusNotFound)
@@ -121,7 +124,7 @@ func TestDeleteCalendarEventAllowsMissingEvent(t *testing.T) {
 	client := New(Config{ClientID: "client-id", ClientSecret: "client-secret"})
 	client.calendar.Endpoint.TokenURL = server.URL + "/token"
 	client.calendarAPIBaseURL = server.URL
-	if err := client.DeleteCalendarEvent(t.Context(), "refresh-token", "vacaro123"); err != nil {
+	if err := client.DeleteCalendarEvent(t.Context(), "refresh-token", "vacaro-calendar", "vacaro123"); err != nil {
 		t.Fatal(err)
 	}
 }

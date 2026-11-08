@@ -159,11 +159,14 @@ func TestStoreIntegration(t *testing.T) {
 	if err != nil || confirmed.Status != "confirmed" {
 		t.Fatalf("ConfirmEvent() = %#v, %v", confirmed, err)
 	}
-	calendarSync, err := store.UpsertConfirmationCalendarSync(ctx, event.ID, nil, owner.ID, "failed")
+	if _, err := store.ResolveGoogleCalendarDestination(ctx, owner.ID, func(string) (string, error) { return "dedicated-calendar", nil }); err != nil {
+		t.Fatal(err)
+	}
+	calendarSync, err := store.UpsertConfirmationCalendarSync(ctx, event.ID, nil, owner.ID, "dedicated-calendar", "failed")
 	if err != nil || calendarSync.Status != "failed" || calendarSync.GroupID != nil {
 		t.Fatalf("UpsertConfirmationCalendarSync() = %#v, %v", calendarSync, err)
 	}
-	calendarSync, err = store.UpsertConfirmationCalendarSync(ctx, event.ID, nil, owner.ID, "synced")
+	calendarSync, err = store.UpsertConfirmationCalendarSync(ctx, event.ID, nil, owner.ID, "dedicated-calendar", "synced")
 	if err != nil || calendarSync.Status != "synced" {
 		t.Fatalf("UpsertConfirmationCalendarSync() update = %#v, %v", calendarSync, err)
 	}

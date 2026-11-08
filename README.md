@@ -156,7 +156,7 @@ http://localhost:8080/api/v1/integrations/google-calendar/callback
 
 `.env`の`GOOGLE_*`と`TOKEN_ENCRYPTION_KEY`をすべて設定するとGoogle連携が有効になります。`TOKEN_ENCRYPTION_KEY`には、`SESSION_KEY`とは別に生成したBase64形式の32バイト鍵を使用してください。未設定の場合もGoogle以外のAPIは起動します。
 
-カレンダー連携では`calendar.events.freebusy`、`calendar.calendarlist.readonly`、`calendar.events`の権限を使用します。予定書き込み権限の追加前から接続済みのユーザーは、設定画面からGoogleカレンダーを再接続してください。
+カレンダー連携では`calendar.events.freebusy`、`calendar.calendarlist.readonly`、`calendar.app.created`の権限を使用します。予定書き込み権限の追加前から接続済みのユーザーは、設定画面からGoogleカレンダーを再接続してください。
 
 ```bash
 openssl rand -base64 32
@@ -212,3 +212,5 @@ docker compose run --rm migrate
 Google の同意画面でカレンダー一覧・空き時間の読み取り権限のいずれかが許可されなかった場合、その接続は保存しません。既存の接続で期限切れ、権限不足、カレンダー単位の取得失敗が発生した場合は、再接続または対象カレンダーの変更を案内する API エラーを返します。診断ログにはトークン・カレンダー ID・Google のレスポンス本文を含めません。
 
 Google OAuth の PKCE・state・Cookie による保護と、Cloud Console の診断確認については [OAuth セキュリティ](docs/oauth-security.md) を参照してください。
+
+確定予定の書き込み先は、利用者ごとに作成する専用カレンダー「Vacaro」です。メインカレンダーへの書き込みは行いません。マイグレーション`000015`を適用し、Google Auth Platformのデータアクセスを`calendar.events`から`calendar.app.created`へ変更してください。既存の接続は専用カレンダーの管理許可を得るため再接続が必要です。Google上の旧予定は自動移動・削除しません。

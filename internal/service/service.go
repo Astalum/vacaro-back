@@ -39,8 +39,9 @@ type GoogleProvider interface {
 	ExchangeCalendar(context.Context, string, string) (string, []string, error)
 	ListCalendars(context.Context, string) ([]googleclient.Calendar, error)
 	FreeBusy(context.Context, string, []string, time.Time, time.Time, string) ([]googleclient.BusyInterval, error)
+	EnsureCalendar(context.Context, string, string, string) (string, error)
 	UpsertCalendarEvent(context.Context, string, googleclient.CalendarEvent) error
-	DeleteCalendarEvent(context.Context, string, string) error
+	DeleteCalendarEvent(context.Context, string, string, string) error
 	Revoke(context.Context, string) error
 }
 
@@ -79,8 +80,10 @@ type Store interface {
 	SaveGoogleCalendarConnection(context.Context, string, []byte, []string) error
 	GetGoogleCalendarConnection(context.Context, string) ([]byte, []string, error)
 	DeleteGoogleCalendarConnection(context.Context, string) ([]byte, error)
+	ResolveGoogleCalendarDestination(context.Context, string, func(string) (string, error)) (string, error)
+	GetGoogleCalendarDestination(context.Context, string) (string, error)
 	HasGoogleAccount(context.Context, string) (bool, error)
-	UpsertConfirmationCalendarSync(context.Context, string, *string, string, string) (domain.ConfirmationCalendarSync, error)
+	UpsertConfirmationCalendarSync(context.Context, string, *string, string, string, string) (domain.ConfirmationCalendarSync, error)
 	ListConfirmationCalendarSyncs(context.Context, string, string) ([]domain.ConfirmationCalendarSync, error)
 	ClearConfirmationCalendarSync(context.Context, string, *string) error
 }

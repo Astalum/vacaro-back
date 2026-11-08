@@ -279,7 +279,7 @@ func TestConfirmEventSyncsConnectedParticipantCalendar(t *testing.T) {
 		},
 		getGoogleCalendar: func(_ context.Context, userID string) ([]byte, []string, error) {
 			if userID == "connected-user" {
-				return []byte("sealed:refresh-token"), []string{googleclient.CalendarEventsScope}, nil
+				return []byte("sealed:refresh-token"), []string{googleclient.CalendarAppCreatedScope}, nil
 			}
 			return []byte("sealed:legacy-token"), []string{"https://www.googleapis.com/auth/calendar.freebusy"}, nil
 		},

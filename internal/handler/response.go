@@ -74,7 +74,7 @@ func writeAPIError(w http.ResponseWriter, r *http.Request, err error) {
 	case errors.Is(err, domain.ErrCalendarNotConnected):
 		status, code, message = http.StatusConflict, "calendar_not_connected", "Googleカレンダーが連携されていません"
 	case errors.Is(err, domain.ErrCalendarWritePermission):
-		status, code, message = http.StatusConflict, "calendar_write_permission_required", "Googleカレンダーへの書き込み権限が必要です"
+		status, code, message = http.StatusConflict, "calendar_write_permission_required", "ユーザー設定からGoogleカレンダーを再接続し、専用カレンダーの作成・管理を許可してください"
 	case errors.Is(err, domain.ErrCalendarSyncFailed):
 		status, code, message = http.StatusBadGateway, "calendar_sync_failed", "Googleカレンダーに追加できませんでした。時間をおいて再試行してください"
 	case errors.Is(err, domain.ErrOAuthFailed):

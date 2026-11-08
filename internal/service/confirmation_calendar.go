@@ -67,25 +67,34 @@ func (s *Service) deleteConfirmationCalendars(ctx context.Context, participants 
 			continue
 		}
 		seen[participant.UserID] = struct{}{}
-		refreshToken, err := s.googleCalendarTokenForWrite(ctx, participant.UserID, calendarEventID)
+		refreshToken, err := s.googleCalendarTokenForWrite(ctx, participant.UserID)
 		if err != nil {
 			if !errors.Is(err, domain.ErrCalendarNotConnected) && !errors.Is(err, domain.ErrCalendarWritePermission) {
 				logCalendarSyncFailure(ctx, "load calendar connection", eventID, groupID, err)
 			}
 			continue
 		}
-		if err := s.google.DeleteCalendarEvent(ctx, refreshToken, calendarEventID); err != nil {
+		destination, err := s.store.GetGoogleCalendarDestination(ctx, participant.UserID)
+		if err != nil {
+			logCalendarSyncFailure(ctx, "load calendar destination", eventID, groupID, err)
+			continue
+		}
+		// Deletion never provisions a calendar and never falls back to primary.
+		if destination == "" {
+			continue
+		}
+		if err := s.google.DeleteCalendarEvent(ctx, refreshToken, destination, calendarEventID); err != nil {
 			logCalendarSyncFailure(ctx, "delete calendar event", eventID, groupID, err)
 		}
 	}
 }
 
-func (s *Service) googleCalendarTokenForWrite(ctx context.Context, userID, calendarEventID string) (string, error) {
+func (s *Service) googleCalendarTokenForWrite(ctx context.Context, userID string) (string, error) {
 	ciphertext, scopes, err := s.store.GetGoogleCalendarConnection(ctx, userID)
 	if err != nil {
 		return "", err
 	}
-	if !hasGoogleCalendarScope(scopes, googleclient.CalendarEventsScope) {
+	if !hasGoogleCalendarScope(scopes, googleclient.CalendarAppCreatedScope) {
 		return "", domain.ErrCalendarWritePermission
 	}
 	plain, err := s.tokenBox.Open(ciphertext)
@@ -122,7 +131,7 @@ func (s *Service) GetConfirmationCalendarStatus(ctx context.Context, eventID, us
 		result.ConnectionStatus = "error"
 		return result, nil
 	}
-	if !hasGoogleCalendarScope(scopes, googleclient.CalendarEventsScope) {
+	if !hasGoogleCalendarScope(scopes, googleclient.CalendarAppCreatedScope) {
 		result.ConnectionStatus = "write_permission_required"
 		return result, nil
 	}
@@ -172,19 +181,24 @@ func (s *Service) syncConfirmationCalendarForUser(ctx context.Context, eventID s
 		return domain.ConfirmationCalendarSync{}, err
 	}
 	event.TimeZone = user.TimeZone
-	refreshToken, err := s.googleCalendarTokenForWrite(ctx, userID, event.ID)
+	refreshToken, err := s.googleCalendarTokenForWrite(ctx, userID)
 	if err != nil {
 		if !errors.Is(err, domain.ErrCalendarNotConnected) && !errors.Is(err, domain.ErrCalendarWritePermission) {
-			_, _ = s.store.UpsertConfirmationCalendarSync(ctx, eventID, groupID, userID, "failed")
+			_, _ = s.store.UpsertConfirmationCalendarSync(ctx, eventID, groupID, userID, event.CalendarID, "failed")
 			return domain.ConfirmationCalendarSync{}, fmt.Errorf("%w: %v", domain.ErrCalendarSyncFailed, err)
 		}
 		return domain.ConfirmationCalendarSync{}, err
 	}
-	if err := s.google.UpsertCalendarEvent(ctx, refreshToken, event); err != nil {
-		_, _ = s.store.UpsertConfirmationCalendarSync(ctx, eventID, groupID, userID, "failed")
+	event.CalendarID, err = s.ensureGoogleCalendarDestination(ctx, userID, refreshToken, user.TimeZone)
+	if err != nil {
+		_, _ = s.store.UpsertConfirmationCalendarSync(ctx, eventID, groupID, userID, "", "failed")
 		return domain.ConfirmationCalendarSync{}, fmt.Errorf("%w: %v", domain.ErrCalendarSyncFailed, err)
 	}
-	return s.store.UpsertConfirmationCalendarSync(ctx, eventID, groupID, userID, "synced")
+	if err := s.google.UpsertCalendarEvent(ctx, refreshToken, event); err != nil {
+		_, _ = s.store.UpsertConfirmationCalendarSync(ctx, eventID, groupID, userID, event.CalendarID, "failed")
+		return domain.ConfirmationCalendarSync{}, fmt.Errorf("%w: %v", domain.ErrCalendarSyncFailed, err)
+	}
+	return s.store.UpsertConfirmationCalendarSync(ctx, eventID, groupID, userID, event.CalendarID, "synced")
 }
 
 func groupContainsUser(group domain.SchedulingGroup, userID string) bool {
@@ -218,4 +232,14 @@ func logCalendarSyncFailure(ctx context.Context, operation, eventID, groupID str
 		attributes = append(attributes, "group_id", groupID)
 	}
 	slog.WarnContext(ctx, "Google Calendar confirmation sync failed", attributes...)
+}
+
+// Provisioning is serialized in PostgreSQL for each user, including the first
+// connection and requests handled by different API instances.
+func (s *Service) ensureGoogleCalendarDestination(ctx context.Context, userID, refreshToken, timeZone string) (string, error) {
+	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+	return s.store.ResolveGoogleCalendarDestination(ctx, userID, func(current string) (string, error) {
+		return s.google.EnsureCalendar(ctx, refreshToken, current, timeZone)
+	})
 }

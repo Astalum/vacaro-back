@@ -7,25 +7,25 @@ import (
 	"github.com/astalum/vacaro-back/internal/domain"
 )
 
-func (s *Store) UpsertConfirmationCalendarSync(ctx context.Context, eventID string, groupID *string, userID, status string) (domain.ConfirmationCalendarSync, error) {
+func (s *Store) UpsertConfirmationCalendarSync(ctx context.Context, eventID string, groupID *string, userID, calendarID, status string) (domain.ConfirmationCalendarSync, error) {
 	query := `
-		INSERT INTO confirmation_calendar_syncs (event_id, group_id, user_id, status)
-		VALUES ($1, $2, $3, $4)
+		INSERT INTO confirmation_calendar_syncs (event_id, group_id, user_id, calendar_id, status)
+		VALUES ($1, $2, $3, NULLIF($4, ''), $5)
 		ON CONFLICT (event_id, group_id, user_id) WHERE group_id IS NOT NULL
-		DO UPDATE SET status = EXCLUDED.status, attempted_at = CURRENT_TIMESTAMP
+		DO UPDATE SET status = EXCLUDED.status, calendar_id = EXCLUDED.calendar_id, attempted_at = CURRENT_TIMESTAMP
 		RETURNING event_id::text, group_id::text, user_id::text, status, attempted_at
 	`
 	if groupID == nil {
 		query = `
-			INSERT INTO confirmation_calendar_syncs (event_id, group_id, user_id, status)
-			VALUES ($1, NULL, $2, $3)
+			INSERT INTO confirmation_calendar_syncs (event_id, group_id, user_id, calendar_id, status)
+			VALUES ($1, NULL, $2, NULLIF($3, ''), $4)
 			ON CONFLICT (event_id, user_id) WHERE group_id IS NULL
-			DO UPDATE SET status = EXCLUDED.status, attempted_at = CURRENT_TIMESTAMP
+			DO UPDATE SET status = EXCLUDED.status, calendar_id = EXCLUDED.calendar_id, attempted_at = CURRENT_TIMESTAMP
 			RETURNING event_id::text, group_id::text, user_id::text, status, attempted_at
 		`
-		return scanConfirmationCalendarSync(s.pool.QueryRow(ctx, query, eventID, userID, status))
+		return scanConfirmationCalendarSync(s.pool.QueryRow(ctx, query, eventID, userID, calendarID, status))
 	}
-	return scanConfirmationCalendarSync(s.pool.QueryRow(ctx, query, eventID, *groupID, userID, status))
+	return scanConfirmationCalendarSync(s.pool.QueryRow(ctx, query, eventID, *groupID, userID, calendarID, status))
 }
 
 func (s *Store) ListConfirmationCalendarSyncs(ctx context.Context, eventID, userID string) ([]domain.ConfirmationCalendarSync, error) {
@@ -33,6 +33,7 @@ func (s *Store) ListConfirmationCalendarSyncs(ctx context.Context, eventID, user
 		SELECT event_id::text, group_id::text, user_id::text, status, attempted_at
 		FROM confirmation_calendar_syncs
 		WHERE event_id = $1 AND user_id = $2
+			AND (status = 'failed' OR calendar_id = (SELECT calendar_id FROM google_calendar_destinations WHERE user_id = $2))
 		ORDER BY group_id NULLS FIRST
 	`, eventID, userID)
 	if err != nil {
