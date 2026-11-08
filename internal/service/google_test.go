@@ -198,3 +198,67 @@ func TestCalendarErrorsRemainActionable(t *testing.T) {
 		})
 	}
 }
+
+func TestCalendarOptionsExcludeHolidaysWithoutFilteringByDisplayName(t *testing.T) {
+	store := storeStub{getGoogleCalendar: func(context.Context, string) ([]byte, []string, error) {
+		return []byte("sealed:refresh-token"), nil, nil
+	}}
+	provider := googleProviderStub{listCalendars: func(context.Context, string) ([]googleclient.Calendar, error) {
+		return []googleclient.Calendar{
+			{ID: "primary", Summary: "Main", Primary: true},
+			{ID: "ja.japanese.official#holiday@group.v.calendar.google.com", Summary: "Renamed"},
+			{ID: "en.usa#holiday@group.v.calendar.google.com", Summary: "US Holidays"},
+			{ID: "work@group.calendar.google.com", Summary: "祝日の出勤予定"},
+		}, nil
+	}}
+	application := New(store, time.Hour, "http://localhost")
+	application.ConfigureGoogle(provider, tokenBoxStub{}, time.Hour)
+	options, err := application.ListGoogleCalendars(t.Context(), "user")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(options.Calendars) != 2 || options.Calendars[0].ID != "primary" || options.Calendars[1].ID != "work@group.calendar.google.com" {
+		t.Fatalf("calendars = %#v", options.Calendars)
+	}
+}
+
+func TestPreviewExcludesHolidayIDsFromSavedAndLegacySelections(t *testing.T) {
+	holiday := "ja.japanese.official#holiday@group.v.calendar.google.com"
+	manyHolidays := make([]string, 51)
+	for i := range manyHolidays {
+		manyHolidays[i] = holiday
+	}
+	manyHolidays[50] = "work"
+	for _, tt := range []struct {
+		name      string
+		ids, want []string
+	}{
+		{"mixed selection", []string{"primary", holiday, "work"}, []string{"primary", "work"}},
+		{"only holidays", []string{holiday}, []string{"primary"}},
+		{"limit counts only imported calendars", manyHolidays, []string{"work"}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			start := time.Date(2026, 11, 15, 0, 0, 0, 0, time.UTC)
+			store := storeStub{
+				getUser: func(context.Context, string) (domain.User, error) { return domain.User{TimeZone: "Asia/Tokyo"}, nil },
+				getEventForUser: func(context.Context, string, string) (domain.Event, error) {
+					return domain.Event{WindowStartAt: start, WindowEndAt: start.Add(time.Hour)}, nil
+				},
+				getGoogleCalendar: func(context.Context, string) ([]byte, []string, error) {
+					return []byte("sealed:refresh-token"), nil, nil
+				},
+			}
+			provider := googleProviderStub{freeBusy: func(_ context.Context, _ string, ids []string, _, _ time.Time, _ string) ([]googleclient.BusyInterval, error) {
+				if !reflect.DeepEqual(ids, tt.want) {
+					t.Fatalf("FreeBusy IDs = %#v, want %#v", ids, tt.want)
+				}
+				return nil, nil
+			}}
+			application := New(store, time.Hour, "http://localhost")
+			application.ConfigureGoogle(provider, tokenBoxStub{}, time.Hour)
+			if _, err := application.PreviewGoogleCalendarAvailability(t.Context(), "event", "user", tt.ids); err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+}

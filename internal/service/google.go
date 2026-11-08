@@ -101,8 +101,14 @@ func (s *Service) ListGoogleCalendars(ctx context.Context, userID string) (Googl
 	if err != nil {
 		return GoogleCalendarOptions{}, googleCalendarError(ctx, "list", err)
 	}
+	importable := make([]googleclient.Calendar, 0, len(calendars))
+	for _, calendar := range calendars {
+		if !googleclient.IsHolidayCalendarID(calendar.ID) {
+			importable = append(importable, calendar)
+		}
+	}
 	return GoogleCalendarOptions{
-		Calendars:    calendars,
+		Calendars:    importable,
 		WriteEnabled: hasGoogleCalendarScope(scopes, googleclient.CalendarEventsScope),
 	}, nil
 }
@@ -111,6 +117,14 @@ func (s *Service) PreviewGoogleCalendarAvailability(ctx context.Context, eventID
 	if !s.GoogleEnabled() {
 		return nil, domain.ErrGoogleNotConfigured
 	}
+	// Older clients and saved preferences may still include holiday IDs.
+	importableIDs := make([]string, 0, len(calendarIDs))
+	for _, id := range calendarIDs {
+		if !googleclient.IsHolidayCalendarID(id) {
+			importableIDs = append(importableIDs, id)
+		}
+	}
+	calendarIDs = importableIDs
 	if len(calendarIDs) == 0 {
 		calendarIDs = []string{"primary"}
 	}

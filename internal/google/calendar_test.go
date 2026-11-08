@@ -127,3 +127,23 @@ func TestExchangeCalendarRejectsIncompleteReadPermissions(t *testing.T) {
 		})
 	}
 }
+
+func TestIsHolidayCalendarID(t *testing.T) {
+	for _, tt := range []struct {
+		id   string
+		want bool
+	}{
+		{"ja.japanese#holiday@group.v.calendar.google.com", true},
+		{"ja.japanese.official#holiday@group.v.calendar.google.com", true},
+		{"en.usa#holiday@group.v.calendar.google.com", true},
+		{" EN.UK#HOLIDAY@GROUP.V.CALENDAR.GOOGLE.COM ", true},
+		{"work@group.calendar.google.com", false},
+		{"holiday@example.com", false},
+		{"ja.japanese#holiday@group.v.calendar.google.com.invalid", false},
+		{"#contacts@group.v.calendar.google.com", false},
+	} {
+		if got := IsHolidayCalendarID(tt.id); got != tt.want {
+			t.Errorf("IsHolidayCalendarID(%q) = %v", tt.id, got)
+		}
+	}
+}
