@@ -63,6 +63,14 @@ func writeAPIError(w http.ResponseWriter, r *http.Request, err error) {
 		status, code, message = http.StatusUnprocessableEntity, "validation_failed", "同じ名前の小グループが既にあります"
 	case errors.Is(err, domain.ErrGoogleNotConfigured):
 		status, code, message = http.StatusServiceUnavailable, "google_not_configured", "Google連携は現在利用できません"
+	case errors.Is(err, domain.ErrCalendarReconnectRequired):
+		status, code, message = http.StatusConflict, "calendar_reconnect_required", "Googleカレンダーの接続が期限切れ、または取り消されています。ユーザー設定から再接続してください"
+	case errors.Is(err, domain.ErrCalendarReadPermission):
+		status, code, message = http.StatusConflict, "calendar_read_permission_required", "空き時間またはカレンダー一覧の読み取り権限が不足しています。ユーザー設定から再接続し、読み取り権限を許可してください"
+	case errors.Is(err, domain.ErrCalendarUnavailable):
+		status, code, message = http.StatusConflict, "calendar_unavailable", "選択したカレンダーの空き時間を取得できません。ユーザー設定で祝日・購読カレンダーやアクセスできないカレンダーを取り込み対象から外してください"
+	case errors.Is(err, domain.ErrCalendarTemporarilyUnavailable):
+		status, code, message = http.StatusBadGateway, "calendar_temporarily_unavailable", "Googleカレンダーから情報を取得できませんでした。時間をおいて再試行してください"
 	case errors.Is(err, domain.ErrCalendarNotConnected):
 		status, code, message = http.StatusConflict, "calendar_not_connected", "Googleカレンダーが連携されていません"
 	case errors.Is(err, domain.ErrCalendarWritePermission):

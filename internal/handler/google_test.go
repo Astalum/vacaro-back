@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/astalum/vacaro-back/internal/auth"
+	"github.com/astalum/vacaro-back/internal/domain"
 	"github.com/astalum/vacaro-back/internal/service"
 )
 
@@ -110,5 +111,39 @@ func TestGoogleLoginProviderErrorIsNotTreatedAsReplay(t *testing.T) {
 	}
 	if location := response.Header().Get("Location"); location != "http://localhost:3000?google_login=error" {
 		t.Fatalf("Location = %q", location)
+	}
+}
+
+func TestGoogleCalendarCallbackFailureReturnsToSettings(t *testing.T) {
+	sessions, _ := auth.NewManager(googleHandlerTestKey, false)
+	states, _ := auth.NewOAuthStateManager(googleHandlerTestKey, false)
+	api := NewAPI(service.New(nil, time.Hour, "https://app.example"), sessions, states, "https://app.example")
+	mux := http.NewServeMux()
+	api.Register(mux)
+	response := httptest.NewRecorder()
+	mux.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/api/v1/integrations/google-calendar/callback?error=access_denied", nil))
+	if response.Code != http.StatusSeeOther || response.Header().Get("Location") != "https://app.example/account?google_calendar=error" {
+		t.Fatalf("callback = %d, %q", response.Code, response.Header().Get("Location"))
+	}
+}
+
+func TestCalendarFailuresHaveActionableResponses(t *testing.T) {
+	for _, tt := range []struct {
+		err    error
+		code   string
+		status int
+	}{
+		{domain.ErrCalendarReconnectRequired, "calendar_reconnect_required", 409},
+		{domain.ErrCalendarReadPermission, "calendar_read_permission_required", 409},
+		{domain.ErrCalendarUnavailable, "calendar_unavailable", 409},
+		{domain.ErrCalendarTemporarilyUnavailable, "calendar_temporarily_unavailable", 502},
+	} {
+		t.Run(tt.code, func(t *testing.T) {
+			response := httptest.NewRecorder()
+			writeAPIError(response, httptest.NewRequest(http.MethodPost, "/preview", nil), tt.err)
+			if response.Code != tt.status || !strings.Contains(response.Body.String(), `"code":"`+tt.code+`"`) {
+				t.Fatalf("response = %d, %s", response.Code, response.Body.String())
+			}
+		})
 	}
 }

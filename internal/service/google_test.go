@@ -170,3 +170,31 @@ func TestDisconnectGoogleCalendarKeepsConnectionWhenRevokeFails(t *testing.T) {
 		t.Fatal("connection was deleted before remote revocation succeeded")
 	}
 }
+
+func TestCalendarErrorsRemainActionable(t *testing.T) {
+	for _, tt := range []struct {
+		kind string
+		want error
+	}{
+		{"reauthorization_required", domain.ErrCalendarReconnectRequired},
+		{"permission_required", domain.ErrCalendarReadPermission},
+		{"calendar_unavailable", domain.ErrCalendarUnavailable},
+		{"api_disabled", domain.ErrGoogleNotConfigured},
+		{"temporarily_unavailable", domain.ErrCalendarTemporarilyUnavailable},
+	} {
+		t.Run(tt.kind, func(t *testing.T) {
+			store := storeStub{getGoogleCalendar: func(context.Context, string) ([]byte, []string, error) {
+				return []byte("sealed:refresh-token"), nil, nil
+			}}
+			provider := googleProviderStub{listCalendars: func(context.Context, string) ([]googleclient.Calendar, error) {
+				return nil, &googleclient.CalendarError{Kind: tt.kind, Status: 403}
+			}}
+			application := New(store, time.Hour, "http://localhost")
+			application.ConfigureGoogle(provider, tokenBoxStub{}, time.Hour)
+			_, err := application.ListGoogleCalendars(t.Context(), "user")
+			if !errors.Is(err, tt.want) {
+				t.Fatalf("error = %v, want %v", err, tt.want)
+			}
+		})
+	}
+}

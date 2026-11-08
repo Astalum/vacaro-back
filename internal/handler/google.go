@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -101,16 +102,16 @@ func (a *API) startGoogleCalendar(w http.ResponseWriter, r *http.Request) {
 func (a *API) completeGoogleCalendar(w http.ResponseWriter, r *http.Request) {
 	state, err := a.consumeGoogleCallback(w, r, googleCalendarPurpose)
 	if err != nil {
-		writeAPIError(w, r, err)
+		a.redirectGoogleCalendarError(w, r, err)
 		return
 	}
 	session, err := a.sessions.Read(r)
 	if err != nil || session.AccountType != "registered" || session.UserID != state.UserID {
-		writeAPIError(w, r, domain.ErrPermissionDenied)
+		a.redirectGoogleCalendarError(w, r, domain.ErrPermissionDenied)
 		return
 	}
 	if err := a.service.CompleteGoogleCalendar(r.Context(), state.UserID, r.URL.Query().Get("code")); err != nil {
-		writeAPIError(w, r, err)
+		a.redirectGoogleCalendarError(w, r, err)
 		return
 	}
 	http.Redirect(w, r, appendResult(a.publicAppURL, "google_calendar", "connected"), http.StatusSeeOther)
@@ -213,4 +214,18 @@ func appendResult(rawURL, key, value string) string {
 	query.Set(key, value)
 	parsed.RawQuery = query.Encode()
 	return parsed.String()
+}
+
+func (a *API) redirectGoogleCalendarError(w http.ResponseWriter, r *http.Request, err error) {
+	result := "error"
+	if errors.Is(err, domain.ErrCalendarReadPermission) {
+		result = "permission_required"
+	}
+	target, parseErr := url.Parse(a.publicAppURL)
+	if parseErr != nil {
+		writeAPIError(w, r, err)
+		return
+	}
+	target.Path = strings.TrimRight(target.Path, "/") + "/account"
+	http.Redirect(w, r, appendResult(target.String(), "google_calendar", result), http.StatusSeeOther)
 }

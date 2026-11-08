@@ -18,7 +18,7 @@ import (
 )
 
 const (
-	calendarFreeBusyScope = "https://www.googleapis.com/auth/calendar.freebusy"
+	calendarFreeBusyScope = "https://www.googleapis.com/auth/calendar.events.freebusy"
 	calendarListScope     = "https://www.googleapis.com/auth/calendar.calendarlist.readonly"
 	CalendarEventsScope   = "https://www.googleapis.com/auth/calendar.events"
 	calendarAPIBaseURL    = "https://www.googleapis.com/calendar/v3"
@@ -115,7 +115,7 @@ func (c *Client) ExchangeIdentity(ctx context.Context, code, expectedNonce strin
 }
 
 func (c *Client) CalendarAuthURL(state string) string {
-	return c.calendar.AuthCodeURL(state, oauth2.AccessTypeOffline, oauth2.SetAuthURLParam("prompt", "consent"))
+	return c.calendar.AuthCodeURL(state, oauth2.AccessTypeOffline, oauth2.SetAuthURLParam("prompt", "consent"), oauth2.SetAuthURLParam("include_granted_scopes", "true"))
 }
 
 func (c *Client) ExchangeCalendar(ctx context.Context, code string) (string, []string, error) {
@@ -130,6 +130,10 @@ func (c *Client) ExchangeCalendar(ctx context.Context, code string) (string, []s
 	if grantedScopes, ok := token.Extra("scope").(string); ok && strings.TrimSpace(grantedScopes) != "" {
 		scopes = strings.Fields(grantedScopes)
 	}
+	if !hasScope(scopes, calendarListScope, "https://www.googleapis.com/auth/calendar.calendarlist", "https://www.googleapis.com/auth/calendar", "https://www.googleapis.com/auth/calendar.readonly") ||
+		!hasScope(scopes, calendarFreeBusyScope, "https://www.googleapis.com/auth/calendar.freebusy", "https://www.googleapis.com/auth/calendar", "https://www.googleapis.com/auth/calendar.readonly") {
+		return "", nil, &CalendarError{Kind: "permission_required", Status: http.StatusForbidden}
+	}
 	return token.RefreshToken, scopes, nil
 }
 
@@ -138,7 +142,7 @@ func (c *Client) ListCalendars(ctx context.Context, refreshToken string) ([]Cale
 	calendars := make([]Calendar, 0)
 	pageToken := ""
 	for {
-		endpoint, _ := url.Parse("https://www.googleapis.com/calendar/v3/users/me/calendarList")
+		endpoint, _ := url.Parse(c.calendarAPIBaseURL + "/users/me/calendarList")
 		query := endpoint.Query()
 		query.Set("minAccessRole", "reader")
 		query.Set("showDeleted", "false")
@@ -152,12 +156,12 @@ func (c *Client) ListCalendars(ctx context.Context, refreshToken string) ([]Cale
 		}
 		response, err := client.Do(request)
 		if err != nil {
-			return nil, fmt.Errorf("list Google calendars: %w", err)
+			return nil, calendarTransportError(err)
 		}
 		if response.StatusCode < 200 || response.StatusCode >= 300 {
 			body, _ := io.ReadAll(io.LimitReader(response.Body, 4096))
 			response.Body.Close()
-			return nil, fmt.Errorf("Google Calendar list returned %d: %s", response.StatusCode, strings.TrimSpace(string(body)))
+			return nil, calendarResponseError(response.StatusCode, body)
 		}
 		var result struct {
 			Items []struct {
@@ -201,19 +205,19 @@ func (c *Client) FreeBusy(ctx context.Context, refreshToken string, calendarIDs 
 		return nil, err
 	}
 	client := c.calendar.Client(ctx, &oauth2.Token{RefreshToken: refreshToken})
-	request, err := http.NewRequestWithContext(ctx, http.MethodPost, "https://www.googleapis.com/calendar/v3/freeBusy", bytes.NewReader(payload))
+	request, err := http.NewRequestWithContext(ctx, http.MethodPost, c.calendarAPIBaseURL+"/freeBusy", bytes.NewReader(payload))
 	if err != nil {
 		return nil, err
 	}
 	request.Header.Set("Content-Type", "application/json")
 	response, err := client.Do(request)
 	if err != nil {
-		return nil, fmt.Errorf("query Google Calendar FreeBusy: %w", err)
+		return nil, calendarTransportError(err)
 	}
 	defer response.Body.Close()
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
 		body, _ := io.ReadAll(io.LimitReader(response.Body, 4096))
-		return nil, fmt.Errorf("Google Calendar FreeBusy returned %d: %s", response.StatusCode, strings.TrimSpace(string(body)))
+		return nil, calendarResponseError(response.StatusCode, body)
 	}
 	var result struct {
 		Calendars map[string]struct {
@@ -221,7 +225,9 @@ func (c *Client) FreeBusy(ctx context.Context, refreshToken string, calendarIDs 
 				Start time.Time `json:"start"`
 				End   time.Time `json:"end"`
 			} `json:"busy"`
-			Errors []any `json:"errors"`
+			Errors []struct {
+				Reason string `json:"reason"`
+			} `json:"errors"`
 		} `json:"calendars"`
 	}
 	if err := json.NewDecoder(response.Body).Decode(&result); err != nil {
@@ -230,8 +236,16 @@ func (c *Client) FreeBusy(ctx context.Context, refreshToken string, calendarIDs 
 	busy := make([]BusyInterval, 0)
 	for _, calendarID := range calendarIDs {
 		calendar, ok := result.Calendars[calendarID]
-		if !ok || len(calendar.Errors) > 0 {
-			return nil, fmt.Errorf("Google Calendar did not return free/busy data for %q", calendarID)
+		if !ok {
+			return nil, &CalendarError{Kind: "calendar_unavailable"}
+		}
+		if len(calendar.Errors) > 0 {
+			for _, item := range calendar.Errors {
+				if item.Reason != "notFound" && item.Reason != "forbidden" {
+					return nil, &CalendarError{Kind: "temporarily_unavailable"}
+				}
+			}
+			return nil, &CalendarError{Kind: "calendar_unavailable"}
 		}
 		for _, interval := range calendar.Busy {
 			busy = append(busy, BusyInterval{StartAt: interval.Start.UTC(), EndAt: interval.End.UTC()})
@@ -332,4 +346,15 @@ func (c *Client) Revoke(ctx context.Context, refreshToken string) error {
 		return fmt.Errorf("Google token revocation returned %d", response.StatusCode)
 	}
 	return nil
+}
+
+func hasScope(scopes []string, alternatives ...string) bool {
+	for _, scope := range scopes {
+		for _, alternative := range alternatives {
+			if scope == alternative {
+				return true
+			}
+		}
+	}
+	return false
 }

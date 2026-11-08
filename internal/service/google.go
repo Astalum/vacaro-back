@@ -2,7 +2,9 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"log/slog"
 	"sort"
 	"strings"
 	"time"
@@ -50,7 +52,7 @@ func (s *Service) CompleteGoogleCalendar(ctx context.Context, userID, code strin
 	}
 	refreshToken, scopes, err := s.google.ExchangeCalendar(ctx, code)
 	if err != nil {
-		return fmt.Errorf("%w: %v", domain.ErrOAuthFailed, err)
+		return googleCalendarError(ctx, "connect", err)
 	}
 	ciphertext, err := s.tokenBox.Seal([]byte(refreshToken))
 	if err != nil {
@@ -97,7 +99,7 @@ func (s *Service) ListGoogleCalendars(ctx context.Context, userID string) (Googl
 	}
 	calendars, err := s.google.ListCalendars(ctx, string(plain))
 	if err != nil {
-		return GoogleCalendarOptions{}, fmt.Errorf("%w: %v", domain.ErrOAuthFailed, err)
+		return GoogleCalendarOptions{}, googleCalendarError(ctx, "list", err)
 	}
 	return GoogleCalendarOptions{
 		Calendars:    calendars,
@@ -138,7 +140,7 @@ func (s *Service) PreviewGoogleCalendarAvailability(ctx context.Context, eventID
 	}
 	busy, err := s.google.FreeBusy(ctx, string(plain), calendarIDs, event.WindowStartAt, event.WindowEndAt, user.TimeZone)
 	if err != nil {
-		return nil, fmt.Errorf("%w: %v", domain.ErrOAuthFailed, err)
+		return nil, googleCalendarError(ctx, "freebusy", err)
 	}
 	return subtractBusy(event.WindowStartAt, event.WindowEndAt, busy), nil
 }
@@ -182,4 +184,26 @@ func subtractBusy(startAt, endAt time.Time, busy []googleclient.BusyInterval) []
 		free = append(free, domain.AvailabilityInterval{StartAt: cursor, EndAt: endAt, Source: "google_calendar"})
 	}
 	return free
+}
+
+func googleCalendarError(ctx context.Context, operation string, err error) error {
+	var calendarError *googleclient.CalendarError
+	if errors.As(err, &calendarError) {
+		slog.WarnContext(ctx, "Google Calendar request failed", "operation", operation, "kind", calendarError.Kind, "provider_status", calendarError.Status)
+		switch calendarError.Kind {
+		case "reauthorization_required":
+			return domain.ErrCalendarReconnectRequired
+		case "permission_required":
+			return domain.ErrCalendarReadPermission
+		case "calendar_unavailable":
+			return domain.ErrCalendarUnavailable
+		case "api_disabled":
+			return domain.ErrGoogleNotConfigured
+		default:
+			return domain.ErrCalendarTemporarilyUnavailable
+		}
+	}
+	// Provider errors may contain credentials or personal data; do not log their text.
+	slog.WarnContext(ctx, "Google Calendar request failed", "operation", operation, "kind", "unknown")
+	return domain.ErrOAuthFailed
 }

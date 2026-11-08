@@ -156,7 +156,7 @@ http://localhost:8080/api/v1/integrations/google-calendar/callback
 
 `.env`の`GOOGLE_*`と`TOKEN_ENCRYPTION_KEY`をすべて設定するとGoogle連携が有効になります。`TOKEN_ENCRYPTION_KEY`には、`SESSION_KEY`とは別に生成したBase64形式の32バイト鍵を使用してください。未設定の場合もGoogle以外のAPIは起動します。
 
-カレンダー連携では`calendar.freebusy`、`calendar.calendarlist.readonly`、`calendar.events`の権限を使用します。予定書き込み権限の追加前から接続済みのユーザーは、設定画面からGoogleカレンダーを再接続してください。
+カレンダー連携では`calendar.events.freebusy`、`calendar.calendarlist.readonly`、`calendar.events`の権限を使用します。予定書き込み権限の追加前から接続済みのユーザーは、設定画面からGoogleカレンダーを再接続してください。
 
 ```bash
 openssl rand -base64 32
@@ -208,3 +208,5 @@ docker compose run --rm migrate
 ### 日時とユーザー設定のタイムゾーン
 
 日時は内部・APIではUTCで管理し、DBセッションと日時デコードもUTCに統一します。ユーザーの入力・表示用タイムゾーンの初期値は`Asia/Tokyo`です。Google再ログイン時は保存済みの設定を保持します。マイグレーション`000014`は新規ユーザーのデフォルトのみ変更し、既存ユーザーの設定は変更しません。
+
+Google の同意画面でカレンダー一覧・空き時間の読み取り権限のいずれかが許可されなかった場合、その接続は保存しません。既存の接続で期限切れ、権限不足、カレンダー単位の取得失敗が発生した場合は、再接続または対象カレンダーの変更を案内する API エラーを返します。診断ログにはトークン・カレンダー ID・Google のレスポンス本文を含めません。
