@@ -115,6 +115,10 @@ func mergeGuestUser(ctx context.Context, tx pgx.Tx, guestUserID, targetUserID st
 	if _, err := tx.Exec(ctx, `UPDATE participants SET user_id = $2 WHERE user_id = $1`, guestUserID, targetUserID); err != nil {
 		return err
 	}
+	if _, err := tx.Exec(ctx, `INSERT INTO user_calendar_preferences(user_id,provider)
+ SELECT $2,provider FROM user_calendar_preferences WHERE user_id=$1 ON CONFLICT(user_id) DO NOTHING`, guestUserID, targetUserID); err != nil {
+		return err
+	}
 	// Preserve an existing iCloud connection when a guest signs into an account.
 	// A connection already held by the registered account takes precedence.
 	if _, err := tx.Exec(ctx, `INSERT INTO icloud_calendar_connections(user_id,credentials_ciphertext,calendar_id,connected_at,updated_at)

@@ -57,6 +57,9 @@ type ICloudProvider interface {
 }
 
 type Store interface {
+	GetCalendarProvider(context.Context, string) (string, error)
+	SetCalendarProvider(context.Context, string, string) error
+	WithCalendarLock(context.Context, string, func() error) error
 	SaveICloudConnection(context.Context, string, []byte, string) error
 	GetICloudConnection(context.Context, string) ([]byte, string, error)
 	DeleteICloudConnection(context.Context, string) error
@@ -657,25 +660,21 @@ func (s *Service) ConfirmEvent(ctx context.Context, eventID, userID string, star
 	if err := s.store.ClearConfirmationCalendarSync(ctx, eventID, nil); err != nil {
 		logCalendarSyncFailure(ctx, "clear calendar sync status", eventID, "", err)
 	}
-	if s.GoogleEnabled() {
-		participants, listErr := s.store.ListParticipants(ctx, eventID, userID)
-		if listErr != nil {
-			logCalendarSyncFailure(ctx, "list event participants", eventID, "", listErr)
-		} else {
-			s.syncConfirmationCalendars(ctx, participants, eventCalendarEntry(s.publicAppURL, event, nil, startAt, endAt), eventID, "")
-		}
-	}
+
 	if s.ICloudEnabled() {
 		if err := s.store.ClearICloudCalendarSync(ctx, eventID, nil); err != nil {
 			logCalendarSyncFailure(ctx, "clear iCloud sync status", eventID, "", err)
 		}
-		participants, listErr := s.store.ListParticipants(ctx, eventID, userID)
-		if listErr != nil {
-			logCalendarSyncFailure(ctx, "list iCloud participants", eventID, "", listErr)
+	}
+	if s.GoogleEnabled() || s.ICloudEnabled() {
+		participants, err := s.store.ListParticipants(ctx, eventID, userID)
+		if err != nil {
+			logCalendarSyncFailure(ctx, "list event participants", eventID, "", err)
 		} else {
-			s.syncICloudCalendars(ctx, participants, eventCalendarEntry(s.publicAppURL, event, nil, startAt, endAt), eventID, "")
+			s.syncSelectedCalendars(ctx, participants, eventCalendarEntry(s.publicAppURL, event, nil, startAt, endAt), eventID, "")
 		}
 	}
+
 	return confirmed, nil
 }
 

@@ -9,6 +9,9 @@ import (
 )
 
 type storeStub struct {
+	calendarProvider      string
+	setCalendarProvider   func(context.Context, string, string) error
+	withCalendarLock      func(context.Context, string, func() error) error
 	clearAllICloudSyncs   func(context.Context, string) error
 	saveICloud            func(context.Context, string, []byte, string) error
 	getICloud             func(context.Context, string) ([]byte, string, error)
@@ -234,4 +237,26 @@ func (s storeStub) ClearAllICloudCalendarSyncs(ctx context.Context, userID strin
 		return s.clearAllICloudSyncs(ctx, userID)
 	}
 	return nil
+}
+
+func (s storeStub) GetCalendarProvider(context.Context, string) (string, error) {
+	if s.calendarProvider != "" {
+		return s.calendarProvider, nil
+	}
+	if s.getICloud != nil || s.saveICloud != nil {
+		return "icloud", nil
+	}
+	return "google", nil
+}
+func (s storeStub) SetCalendarProvider(ctx context.Context, id, provider string) error {
+	if s.setCalendarProvider != nil {
+		return s.setCalendarProvider(ctx, id, provider)
+	}
+	return nil
+}
+func (s storeStub) WithCalendarLock(ctx context.Context, id string, fn func() error) error {
+	if s.withCalendarLock != nil {
+		return s.withCalendarLock(ctx, id, fn)
+	}
+	return fn()
 }

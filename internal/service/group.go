@@ -190,15 +190,16 @@ func (s *Service) ConfirmGroup(ctx context.Context, eventID, groupID, userID str
 	if err := s.store.ClearConfirmationCalendarSync(ctx, eventID, &groupID); err != nil {
 		logCalendarSyncFailure(ctx, "clear calendar sync status", eventID, groupID, err)
 	}
-	if s.GoogleEnabled() {
-		s.syncConfirmationCalendars(ctx, confirmed.Members, eventCalendarEntry(s.publicAppURL, event, &confirmed, startAt, endAt), eventID, groupID)
-	}
+
 	if s.ICloudEnabled() {
 		if err := s.store.ClearICloudCalendarSync(ctx, eventID, &groupID); err != nil {
 			logCalendarSyncFailure(ctx, "clear iCloud sync status", eventID, groupID, err)
 		}
-		s.syncICloudCalendars(ctx, confirmed.Members, eventCalendarEntry(s.publicAppURL, event, &confirmed, startAt, endAt), eventID, groupID)
 	}
+	if s.GoogleEnabled() || s.ICloudEnabled() {
+		s.syncSelectedCalendars(ctx, confirmed.Members, eventCalendarEntry(s.publicAppURL, event, &confirmed, startAt, endAt), eventID, groupID)
+	}
+
 	return confirmed, nil
 }
 

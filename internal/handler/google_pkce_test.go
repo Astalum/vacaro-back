@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/astalum/vacaro-back/internal/auth"
+	"github.com/astalum/vacaro-back/internal/domain"
 	googleclient "github.com/astalum/vacaro-back/internal/google"
 	"github.com/astalum/vacaro-back/internal/service"
 	"golang.org/x/oauth2"
@@ -48,7 +49,7 @@ func TestOAuthRoutesKeepVerifierInSealedCookie(t *testing.T) {
 			states, _ := auth.NewOAuthStateManager(googleHandlerTestKey, false)
 			box, _ := auth.NewBox(googleHandlerTestKey)
 			provider := &pkceProvider{client: googleclient.New(googleclient.Config{ClientID: "test", ClientSecret: "secret", LoginRedirectURL: "https://app.example/api/v1/auth/google/callback", CalendarRedirectURL: "https://app.example/api/v1/integrations/google-calendar/callback"})}
-			application := service.New(nil, time.Hour, "https://app.example")
+			application := service.New(pkceCalendarStore{}, time.Hour, "https://app.example")
 			application.ConfigureGoogle(provider, box, time.Hour)
 			api := NewAPI(application, sessions, states, "https://app.example")
 			mux := http.NewServeMux()
@@ -119,4 +120,16 @@ func TestOAuthRoutesKeepVerifierInSealedCookie(t *testing.T) {
 			}
 		})
 	}
+}
+
+type pkceCalendarStore struct{ service.Store }
+
+func (pkceCalendarStore) GetCalendarProvider(context.Context, string) (string, error) {
+	return "google", nil
+}
+func (pkceCalendarStore) WithCalendarLock(_ context.Context, _ string, fn func() error) error {
+	return fn()
+}
+func (pkceCalendarStore) GetUser(context.Context, string) (domain.User, error) {
+	return domain.User{ID: "user", AccountType: "registered", TimeZone: "Asia/Tokyo"}, nil
 }

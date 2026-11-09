@@ -86,6 +86,15 @@ func (a *API) startGoogleCalendar(w http.ResponseWriter, r *http.Request) {
 		writeAPIError(w, r, domain.ErrPermissionDenied)
 		return
 	}
+	preference, err := a.service.GetCalendarPreference(r.Context(), session.UserID)
+	if err != nil {
+		writeAPIError(w, r, err)
+		return
+	}
+	if preference.Provider != "google" && preference.Provider != "timetree" {
+		writeAPIError(w, r, domain.ErrInactiveCalendar)
+		return
+	}
 	state, err := a.oauthStates.Begin(w, googleCalendarPurpose, session.UserID)
 	if err != nil {
 		writeAPIError(w, r, err)

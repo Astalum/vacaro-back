@@ -19,7 +19,7 @@ func (s *Service) ConfigureICloud(provider ICloudProvider, box tokenBox) {
 	s.icloudBox = box
 }
 func (s *Service) ICloudEnabled() bool { return s.icloud != nil && s.icloudBox != nil }
-func (s *Service) ConnectICloud(ctx context.Context, userID, username, password string) error {
+func (s *Service) connectICloudUnlocked(ctx context.Context, userID, username, password string) error {
 	if !s.ICloudEnabled() {
 		return domain.ErrICloudNotConfigured
 	}
@@ -92,7 +92,7 @@ type ICloudCalendarOptions struct {
 	Account   string            `json:"account"`
 }
 
-func (s *Service) ListICloudCalendars(ctx context.Context, userID string) (ICloudCalendarOptions, error) {
+func (s *Service) listICloudCalendarsUnlocked(ctx context.Context, userID string) (ICloudCalendarOptions, error) {
 	cred, err := s.icloudCredentials(ctx, userID)
 	if err != nil {
 		return ICloudCalendarOptions{}, err
@@ -109,7 +109,7 @@ func (s *Service) DisconnectICloud(ctx context.Context, userID string) error {
 	}
 	return s.store.DeleteICloudConnection(ctx, userID)
 }
-func (s *Service) PreviewICloudAvailability(ctx context.Context, eventID, userID string, ids []string) ([]domain.AvailabilityInterval, error) {
+func (s *Service) previewICloudAvailabilityUnlocked(ctx context.Context, eventID, userID string, ids []string) ([]domain.AvailabilityInterval, error) {
 	if len(ids) > 50 {
 		return nil, &ValidationError{Fields: map[string]string{"calendar_ids": "50件以下で指定してください"}}
 	}
@@ -167,7 +167,7 @@ func icloudError(ctx context.Context, operation string, err error) error {
 
 // Every sync failure is recorded independently of the Google provider and never
 // rolls back a successfully confirmed Vacaro schedule.
-func (s *Service) syncICloudCalendarForUser(ctx context.Context, eventID string, groupID *string, userID string, event googleclient.CalendarEvent) (domain.ConfirmationCalendarSync, error) {
+func (s *Service) syncICloudCalendarForUserUnlocked(ctx context.Context, eventID string, groupID *string, userID string, event googleclient.CalendarEvent) (domain.ConfirmationCalendarSync, error) {
 	cred, err := s.icloudCredentials(ctx, userID)
 	if err != nil {
 		return domain.ConfirmationCalendarSync{}, err
@@ -187,19 +187,7 @@ func (s *Service) syncICloudCalendarForUser(ctx context.Context, eventID string,
 	}
 	return s.store.UpsertICloudCalendarSync(ctx, eventID, groupID, userID, cred.CalendarURL, "synced")
 }
-func (s *Service) syncICloudCalendars(ctx context.Context, participants []domain.Participant, event googleclient.CalendarEvent, eventID, groupID string) {
-	seen := map[string]bool{}
-	for _, participant := range participants {
-		if seen[participant.UserID] {
-			continue
-		}
-		seen[participant.UserID] = true
-		if _, err := s.syncICloudCalendarForUser(ctx, eventID, optionalGroupID(groupID), participant.UserID, event); err != nil && !errors.Is(err, domain.ErrICloudNotConnected) {
-			slog.WarnContext(ctx, "iCloud confirmation sync failed", "event_id", eventID, "group_id", groupID)
-		}
-	}
-}
-func (s *Service) deleteICloudCalendars(ctx context.Context, participants []domain.Participant, id, eventID, groupID string) {
+func (s *Service) deleteICloudCalendarsUnlocked(ctx context.Context, participants []domain.Participant, id, eventID, groupID string) {
 	seen := map[string]bool{}
 	for _, participant := range participants {
 		if seen[participant.UserID] {
@@ -223,6 +211,13 @@ func (s *Service) GetICloudCalendarStatus(ctx context.Context, eventID, userID s
 		return ConfirmationCalendarStatus{}, err
 	}
 	result := ConfirmationCalendarStatus{ConnectionStatus: "unavailable", Syncs: []domain.ConfirmationCalendarSync{}}
+	if err := s.requireCalendarProvider(ctx, userID, "icloud", false); err != nil {
+		if errors.Is(err, domain.ErrInactiveCalendar) {
+			result.ConnectionStatus = "inactive"
+			return result, nil
+		}
+		return result, err
+	}
 	if !s.ICloudEnabled() {
 		return result, nil
 	}
@@ -273,4 +268,41 @@ func (s *Service) SyncOwnICloudCalendar(ctx context.Context, eventID string, gro
 		entry = eventCalendarEntry(s.publicAppURL, event, &group, *group.ConfirmedStartAt, *group.ConfirmedEndAt)
 	}
 	return s.syncICloudCalendarForUser(ctx, eventID, groupID, userID, entry)
+}
+
+func (s *Service) ConnectICloud(ctx context.Context, userID, username, password string) error {
+	return s.withActiveCalendar(ctx, userID, "icloud", false, func() error { return s.connectICloudUnlocked(ctx, userID, username, password) })
+}
+
+func (s *Service) ListICloudCalendars(ctx context.Context, userID string) (ICloudCalendarOptions, error) {
+	return calendarResult(s, ctx, userID, "icloud", false, func() (ICloudCalendarOptions, error) { return s.listICloudCalendarsUnlocked(ctx, userID) })
+}
+
+func (s *Service) PreviewICloudAvailability(ctx context.Context, eventID, userID string, ids []string) ([]domain.AvailabilityInterval, error) {
+	return calendarResult(s, ctx, userID, "icloud", true, func() ([]domain.AvailabilityInterval, error) {
+		return s.previewICloudAvailabilityUnlocked(ctx, eventID, userID, ids)
+	})
+}
+
+func (s *Service) syncICloudCalendarForUser(ctx context.Context, eventID string, groupID *string, userID string, event googleclient.CalendarEvent) (domain.ConfirmationCalendarSync, error) {
+	return calendarResult(s, ctx, userID, "icloud", false, func() (domain.ConfirmationCalendarSync, error) {
+		return s.syncICloudCalendarForUserUnlocked(ctx, eventID, groupID, userID, event)
+	})
+}
+
+func (s *Service) deleteICloudCalendars(ctx context.Context, participants []domain.Participant, id, eventID, groupID string) {
+	seen := map[string]bool{}
+	for _, p := range participants {
+		if seen[p.UserID] {
+			continue
+		}
+		seen[p.UserID] = true
+		err := s.withActiveCalendar(ctx, p.UserID, "icloud", false, func() error {
+			s.deleteICloudCalendarsUnlocked(ctx, []domain.Participant{p}, id, eventID, groupID)
+			return nil
+		})
+		if err != nil && !errors.Is(err, domain.ErrInactiveCalendar) {
+			logCalendarSyncFailure(ctx, "load selected calendar", eventID, groupID, err)
+		}
+	}
 }

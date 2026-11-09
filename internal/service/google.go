@@ -46,7 +46,7 @@ func (s *Service) GoogleCalendarURL(state, verifier string) (string, error) {
 	return s.google.CalendarAuthURL(state, verifier), nil
 }
 
-func (s *Service) CompleteGoogleCalendar(ctx context.Context, userID, code, verifier string) error {
+func (s *Service) completeGoogleCalendarUnlocked(ctx context.Context, userID, code, verifier string) error {
 	if !s.GoogleEnabled() {
 		return domain.ErrGoogleNotConfigured
 	}
@@ -97,7 +97,7 @@ type GoogleCalendarOptions struct {
 	WriteEnabled bool
 }
 
-func (s *Service) ListGoogleCalendars(ctx context.Context, userID string) (GoogleCalendarOptions, error) {
+func (s *Service) listGoogleCalendarsUnlocked(ctx context.Context, userID string) (GoogleCalendarOptions, error) {
 	if !s.GoogleEnabled() {
 		return GoogleCalendarOptions{}, domain.ErrGoogleNotConfigured
 	}
@@ -125,7 +125,7 @@ func (s *Service) ListGoogleCalendars(ctx context.Context, userID string) (Googl
 	}, nil
 }
 
-func (s *Service) PreviewGoogleCalendarAvailability(ctx context.Context, eventID, userID string, calendarIDs []string) ([]domain.AvailabilityInterval, error) {
+func (s *Service) previewGoogleCalendarAvailabilityUnlocked(ctx context.Context, eventID, userID string, calendarIDs []string) ([]domain.AvailabilityInterval, error) {
 	if !s.GoogleEnabled() {
 		return nil, domain.ErrGoogleNotConfigured
 	}
@@ -232,4 +232,18 @@ func googleCalendarError(ctx context.Context, operation string, err error) error
 	// Provider errors may contain credentials or personal data; do not log their text.
 	slog.WarnContext(ctx, "Google Calendar request failed", "operation", operation, "kind", "unknown")
 	return domain.ErrOAuthFailed
+}
+
+func (s *Service) CompleteGoogleCalendar(ctx context.Context, userID, code, verifier string) error {
+	return s.withActiveCalendar(ctx, userID, "google", false, func() error { return s.completeGoogleCalendarUnlocked(ctx, userID, code, verifier) })
+}
+
+func (s *Service) ListGoogleCalendars(ctx context.Context, userID string) (GoogleCalendarOptions, error) {
+	return calendarResult(s, ctx, userID, "google", false, func() (GoogleCalendarOptions, error) { return s.listGoogleCalendarsUnlocked(ctx, userID) })
+}
+
+func (s *Service) PreviewGoogleCalendarAvailability(ctx context.Context, eventID, userID string, calendarIDs []string) ([]domain.AvailabilityInterval, error) {
+	return calendarResult(s, ctx, userID, "google", true, func() ([]domain.AvailabilityInterval, error) {
+		return s.previewGoogleCalendarAvailabilityUnlocked(ctx, eventID, userID, calendarIDs)
+	})
 }

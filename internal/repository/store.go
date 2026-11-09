@@ -13,11 +13,12 @@ import (
 )
 
 type Store struct {
-	pool *pgxpool.Pool
+	pool          *pgxpool.Pool
+	calendarLocks chan struct{}
 }
 
 func New(pool *pgxpool.Pool) *Store {
-	return &Store{pool: pool}
+	return &Store{pool: pool, calendarLocks: make(chan struct{}, 4)}
 }
 
 func (s *Store) CreateGuest(ctx context.Context, displayName, timeZone string, expiresAt time.Time) (domain.User, error) {

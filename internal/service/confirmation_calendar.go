@@ -44,23 +44,7 @@ func confirmationCalendarEventID(eventID, groupID string) string {
 	return "vacaro" + hex.EncodeToString(digest[:])
 }
 
-func (s *Service) syncConfirmationCalendars(ctx context.Context, participants []domain.Participant, event googleclient.CalendarEvent, eventID, groupID string) {
-	seen := make(map[string]struct{}, len(participants))
-	for _, participant := range participants {
-		if _, exists := seen[participant.UserID]; exists {
-			continue
-		}
-		seen[participant.UserID] = struct{}{}
-		if _, err := s.syncConfirmationCalendarForUser(ctx, eventID, optionalGroupID(groupID), participant.UserID, event); err != nil {
-			if errors.Is(err, domain.ErrCalendarNotConnected) || errors.Is(err, domain.ErrCalendarWritePermission) {
-				continue
-			}
-			logCalendarSyncFailure(ctx, "upsert calendar event", eventID, groupID, err)
-		}
-	}
-}
-
-func (s *Service) deleteConfirmationCalendars(ctx context.Context, participants []domain.Participant, calendarEventID, eventID, groupID string) {
+func (s *Service) deleteConfirmationCalendarsUnlocked(ctx context.Context, participants []domain.Participant, calendarEventID, eventID, groupID string) {
 	seen := make(map[string]struct{}, len(participants))
 	for _, participant := range participants {
 		if _, exists := seen[participant.UserID]; exists {
@@ -111,6 +95,12 @@ type ConfirmationCalendarStatus struct {
 
 func (s *Service) GetConfirmationCalendarStatus(ctx context.Context, eventID, userID string) (ConfirmationCalendarStatus, error) {
 	if _, err := s.store.GetEventForUser(ctx, eventID, userID); err != nil {
+		return ConfirmationCalendarStatus{}, err
+	}
+	if err := s.requireCalendarProvider(ctx, userID, "google", false); err != nil {
+		if errors.Is(err, domain.ErrInactiveCalendar) {
+			return ConfirmationCalendarStatus{ConnectionStatus: "inactive", Syncs: []domain.ConfirmationCalendarSync{}}, nil
+		}
 		return ConfirmationCalendarStatus{}, err
 	}
 	syncs, err := s.store.ListConfirmationCalendarSyncs(ctx, eventID, userID)
@@ -175,7 +165,7 @@ func (s *Service) SyncOwnConfirmationCalendar(ctx context.Context, eventID strin
 	return s.syncConfirmationCalendarForUser(ctx, eventID, groupID, userID, entry)
 }
 
-func (s *Service) syncConfirmationCalendarForUser(ctx context.Context, eventID string, groupID *string, userID string, event googleclient.CalendarEvent) (domain.ConfirmationCalendarSync, error) {
+func (s *Service) syncConfirmationCalendarForUserUnlocked(ctx context.Context, eventID string, groupID *string, userID string, event googleclient.CalendarEvent) (domain.ConfirmationCalendarSync, error) {
 	user, err := s.store.GetUser(ctx, userID)
 	if err != nil {
 		return domain.ConfirmationCalendarSync{}, err
@@ -242,4 +232,27 @@ func (s *Service) ensureGoogleCalendarDestination(ctx context.Context, userID, r
 	return s.store.ResolveGoogleCalendarDestination(ctx, userID, func(current string) (string, error) {
 		return s.google.EnsureCalendar(ctx, refreshToken, current, timeZone)
 	})
+}
+
+func (s *Service) syncConfirmationCalendarForUser(ctx context.Context, eventID string, groupID *string, userID string, event googleclient.CalendarEvent) (domain.ConfirmationCalendarSync, error) {
+	return calendarResult(s, ctx, userID, "google", false, func() (domain.ConfirmationCalendarSync, error) {
+		return s.syncConfirmationCalendarForUserUnlocked(ctx, eventID, groupID, userID, event)
+	})
+}
+
+func (s *Service) deleteConfirmationCalendars(ctx context.Context, participants []domain.Participant, id, eventID, groupID string) {
+	seen := map[string]bool{}
+	for _, p := range participants {
+		if seen[p.UserID] {
+			continue
+		}
+		seen[p.UserID] = true
+		err := s.withActiveCalendar(ctx, p.UserID, "google", false, func() error {
+			s.deleteConfirmationCalendarsUnlocked(ctx, []domain.Participant{p}, id, eventID, groupID)
+			return nil
+		})
+		if err != nil && !errors.Is(err, domain.ErrInactiveCalendar) {
+			logCalendarSyncFailure(ctx, "load selected calendar", eventID, groupID, err)
+		}
+	}
 }

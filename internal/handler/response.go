@@ -39,6 +39,8 @@ func writeAPIError(w http.ResponseWriter, r *http.Request, err error) {
 
 	var validationError *service.ValidationError
 	switch {
+	case errors.Is(err, domain.ErrInactiveCalendar):
+		status, code, message = 409, "calendar_provider_inactive", "選択されていないカレンダーは利用できません。カレンダー設定で使用するサービスを確認してください"
 	case errors.Is(err, domain.ErrICloudNotConfigured):
 		status, code, message = 503, "icloud_not_configured", "iCloud連携は現在利用できません"
 	case errors.Is(err, domain.ErrICloudNotConnected):

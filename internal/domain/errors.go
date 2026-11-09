@@ -32,3 +32,5 @@ var (
 	ErrOAuthFailed                    = errors.New("OAuth flow failed")
 	ErrGoogleAuthRequired             = errors.New("Google authentication is required")
 )
+
+var ErrInactiveCalendar = errors.New("calendar provider is not selected")
