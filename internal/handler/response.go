@@ -39,6 +39,22 @@ func writeAPIError(w http.ResponseWriter, r *http.Request, err error) {
 
 	var validationError *service.ValidationError
 	switch {
+	case errors.Is(err, domain.ErrICloudNotConfigured):
+		status, code, message = 503, "icloud_not_configured", "iCloud連携は現在利用できません"
+	case errors.Is(err, domain.ErrICloudNotConnected):
+		status, code, message = 409, "icloud_not_connected", "iCloudカレンダーが連携されていません"
+	case errors.Is(err, domain.ErrICloudReconnectRequired):
+		status, code, message = 409, "icloud_reconnect_required", "Apple Accountとアプリ用パスワードを確認して、iCloudを再接続してください"
+	case errors.Is(err, domain.ErrICloudPermission):
+		status, code, message = 409, "icloud_permission_required", "iCloudカレンダーにアクセスできません。アプリ用パスワードと共有権限を確認してください"
+	case errors.Is(err, domain.ErrICloudUnavailable):
+		status, code, message = 409, "icloud_calendar_unavailable", "選択したiCloudカレンダーを取得できません。iCloud設定で取り込み対象を選び直してください"
+	case errors.Is(err, domain.ErrICloudTemporarilyUnavailable):
+		status, code, message = 502, "icloud_temporarily_unavailable", "iCloudから予定を取得できませんでした。時間をおいて再試行してください"
+	case errors.Is(err, domain.ErrICloudSyncFailed):
+		status, code, message = 502, "icloud_sync_failed", "iCloudの専用カレンダーに予定を反映できませんでした。接続設定を確認して再試行してください"
+	case errors.Is(err, domain.ErrICloudConflict):
+		status, code, message = 409, "icloud_conflict", "iCloud側で予定が変更されました。再読み込みしてから再試行してください"
 	case errors.As(err, &validationError):
 		status, code, message, fields = http.StatusUnprocessableEntity, "validation_failed", "入力内容を確認してください", validationError.Fields
 	case errors.Is(err, domain.ErrNotFound):

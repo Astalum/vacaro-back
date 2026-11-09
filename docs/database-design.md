@@ -496,3 +496,11 @@ Google連携用テーブルは、`000005_create_google_integrations`で追加す
 `google_calendar_destinations` に `user_id`（usersへの外部キー・主キー）、`calendar_id`（空・primary禁止）、`created_at`、`updated_at`を保持する。トークン解除でもIDを削除しない。利用者行のFOR UPDATEロックで初回作成を含め直列化し、Google APIで作成または既存IDを確認してからIDを保存する。同名のカレンダーを検索・採用しない。
 
 `confirmation_calendar_syncs.calendar_id`（TEXT、NULL可）は実際の同期先を記録する。NULLは旧メインカレンダーへの記録。登録済みとして表示するのは現在の専用カレンダーIDと一致する記録のみで、失敗記録は再試行用に表示する。専用カレンダーを再作成した場合、旧IDへの成功記録を現在の登録済みとして扱わない。
+
+## iCloud連携（マイグレーション000016）
+
+`icloud_calendar_connections`は`user_id`を主キーとし、暗号化したApple Account・アプリ用パスワード・discovery情報を`credentials_ciphertext`に保存する。同期先の`calendar_id`と接続・更新日時も保持する。ユーザー削除時はCASCADE、連携解除時は接続レコードを削除する。
+
+`icloud_calendar_syncs`はGoogleの同期記録とは別テーブル。event_id、group_id（全体はNULL）、user_id、calendar_id、status（synced/failed）、attempted_atを保存する。全体予定は(event_id,user_id)、グループは(event_id,group_id,user_id)の部分一意インデックスを持つ。現在の接続先と異なる成功記録は表示しない。再接続時や専用カレンダーの再作成時に旧同期記録を消し、登録済みの誤表示を防ぐ。
+
+availability_intervals.sourceには`icloud_calendar`も許可する。iCloudから取得した予定本文は保存しない。既存Googleアカウントへのゲスト統合では、登録済みアカウント側にiCloud接続がなければ、ゲストの接続と同期記録も引き継ぐ。

@@ -15,6 +15,7 @@ import (
 
 	"github.com/astalum/vacaro-back/internal/domain"
 	googleclient "github.com/astalum/vacaro-back/internal/google"
+	"github.com/astalum/vacaro-back/internal/icloud"
 	"github.com/astalum/vacaro-back/internal/repository"
 )
 
@@ -22,6 +23,8 @@ type Service struct {
 	store         Store
 	guestTTL      time.Duration
 	publicAppURL  string
+	icloud        ICloudProvider
+	icloudBox     tokenBox
 	google        GoogleProvider
 	tokenBox      tokenBox
 	registeredTTL time.Duration
@@ -45,7 +48,22 @@ type GoogleProvider interface {
 	Revoke(context.Context, string) error
 }
 
+type ICloudProvider interface {
+	Discover(context.Context, string, string, string) (icloud.Credentials, error)
+	ListCalendars(context.Context, icloud.Credentials) ([]icloud.Calendar, error)
+	Busy(context.Context, icloud.Credentials, []string, time.Time, time.Time, string) ([]googleclient.BusyInterval, error)
+	UpsertEvent(context.Context, icloud.Credentials, googleclient.CalendarEvent) (bool, error)
+	DeleteEvent(context.Context, icloud.Credentials, string) error
+}
+
 type Store interface {
+	SaveICloudConnection(context.Context, string, []byte, string) error
+	GetICloudConnection(context.Context, string) ([]byte, string, error)
+	DeleteICloudConnection(context.Context, string) error
+	UpsertICloudCalendarSync(context.Context, string, *string, string, string, string) (domain.ConfirmationCalendarSync, error)
+	ListICloudCalendarSyncs(context.Context, string, string) ([]domain.ConfirmationCalendarSync, error)
+	ClearICloudCalendarSync(context.Context, string, *string) error
+	ClearAllICloudCalendarSyncs(context.Context, string) error
 	CreateGuest(context.Context, string, string, time.Time) (domain.User, error)
 	GetUser(context.Context, string) (domain.User, error)
 	UpdateUser(context.Context, string, string, string) (domain.User, error)
@@ -647,6 +665,17 @@ func (s *Service) ConfirmEvent(ctx context.Context, eventID, userID string, star
 			s.syncConfirmationCalendars(ctx, participants, eventCalendarEntry(s.publicAppURL, event, nil, startAt, endAt), eventID, "")
 		}
 	}
+	if s.ICloudEnabled() {
+		if err := s.store.ClearICloudCalendarSync(ctx, eventID, nil); err != nil {
+			logCalendarSyncFailure(ctx, "clear iCloud sync status", eventID, "", err)
+		}
+		participants, listErr := s.store.ListParticipants(ctx, eventID, userID)
+		if listErr != nil {
+			logCalendarSyncFailure(ctx, "list iCloud participants", eventID, "", listErr)
+		} else {
+			s.syncICloudCalendars(ctx, participants, eventCalendarEntry(s.publicAppURL, event, nil, startAt, endAt), eventID, "")
+		}
+	}
 	return confirmed, nil
 }
 
@@ -670,11 +699,46 @@ func (s *Service) ReopenEvent(ctx context.Context, eventID, userID string) (doma
 			s.deleteConfirmationCalendars(ctx, participants, confirmationCalendarEventID(eventID, ""), eventID, "")
 		}
 	}
+	if s.ICloudEnabled() {
+		if err := s.store.ClearICloudCalendarSync(ctx, eventID, nil); err != nil {
+			logCalendarSyncFailure(ctx, "clear iCloud sync status", eventID, "", err)
+		}
+		participants, listErr := s.store.ListParticipants(ctx, eventID, userID)
+		if listErr != nil {
+			logCalendarSyncFailure(ctx, "list iCloud participants", eventID, "", listErr)
+		} else {
+			s.deleteICloudCalendars(ctx, participants, confirmationCalendarEventID(eventID, ""), eventID, "")
+		}
+	}
 	return reopened, nil
 }
 
 func (s *Service) CancelEvent(ctx context.Context, eventID, userID string) error {
-	return s.store.CancelEvent(ctx, eventID, userID)
+	if !s.ICloudEnabled() {
+		return s.store.CancelEvent(ctx, eventID, userID)
+	}
+	event, err := s.store.GetEventForUser(ctx, eventID, userID)
+	if err != nil {
+		return err
+	}
+	var groups []domain.SchedulingGroup
+	if event.SchedulingMode == "groups" {
+		groups, err = s.store.ListGroups(ctx, eventID, userID)
+		if err != nil {
+			return err
+		}
+	}
+	if err := s.store.CancelEvent(ctx, eventID, userID); err != nil {
+		return err
+	}
+	participants, err := s.store.ListParticipants(ctx, eventID, userID)
+	if err == nil {
+		s.deleteICloudCalendars(ctx, participants, confirmationCalendarEventID(eventID, ""), eventID, "")
+	}
+	for _, group := range groups {
+		s.deleteICloudCalendars(ctx, group.Members, confirmationCalendarEventID(eventID, group.ID), eventID, group.ID)
+	}
+	return nil
 }
 
 func normalizeEvent(input CreateEventInput) CreateEventInput {

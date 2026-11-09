@@ -214,3 +214,9 @@ Google の同意画面でカレンダー一覧・空き時間の読み取り権�
 Google OAuth の PKCE・state・Cookie による保護と、Cloud Console の診断確認については [OAuth セキュリティ](docs/oauth-security.md) を参照してください。
 
 確定予定の書き込み先は、利用者ごとに作成する専用カレンダー「Vacaro」です。メインカレンダーへの書き込みは行いません。マイグレーション`000015`を適用し、Google Auth Platformのデータアクセスを`calendar.events`から`calendar.app.created`へ変更してください。既存の接続は専用カレンダーの管理許可を得るため再接続が必要です。Google上の旧予定は自動移動・削除しません。
+
+## iCloudカレンダー連携
+
+マイグレーション`000016`を適用すると、iCloudのCalDAV連携を利用できます。Google OAuth設定とは独立して動作し、認証情報の暗号化鍵をSESSION_KEYから用途別に導出します。SESSION_KEY変更時はiCloudの再接続が必要です。
+
+Apple Accountのメールアドレスとアプリ用パスワードで接続し、カレンダー選択・空き時間プレビュー・専用「Vacaro」カレンダーへの確定予定の自動登録・更新・削除に対応します。通常のApple Accountパスワードは受け付けません。iCloud側の権限を取り消す場合は、Apple Accountでアプリ用パスワードを取り消します。端末内だけに保存された予定は対象ではありません。

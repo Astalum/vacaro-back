@@ -193,6 +193,12 @@ func (s *Service) ConfirmGroup(ctx context.Context, eventID, groupID, userID str
 	if s.GoogleEnabled() {
 		s.syncConfirmationCalendars(ctx, confirmed.Members, eventCalendarEntry(s.publicAppURL, event, &confirmed, startAt, endAt), eventID, groupID)
 	}
+	if s.ICloudEnabled() {
+		if err := s.store.ClearICloudCalendarSync(ctx, eventID, &groupID); err != nil {
+			logCalendarSyncFailure(ctx, "clear iCloud sync status", eventID, groupID, err)
+		}
+		s.syncICloudCalendars(ctx, confirmed.Members, eventCalendarEntry(s.publicAppURL, event, &confirmed, startAt, endAt), eventID, groupID)
+	}
 	return confirmed, nil
 }
 
@@ -230,6 +236,9 @@ func (s *Service) ReopenGroup(ctx context.Context, eventID, groupID, userID stri
 	}
 	if s.GoogleEnabled() {
 		s.deleteConfirmationCalendars(ctx, reopened.Members, confirmationCalendarEventID(eventID, groupID), eventID, groupID)
+	}
+	if s.ICloudEnabled() {
+		s.deleteICloudCalendars(ctx, reopened.Members, confirmationCalendarEventID(eventID, groupID), eventID, groupID)
 	}
 	return reopened, nil
 }

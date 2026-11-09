@@ -17,6 +17,7 @@ import (
 	"github.com/astalum/vacaro-back/internal/database"
 	googleclient "github.com/astalum/vacaro-back/internal/google"
 	"github.com/astalum/vacaro-back/internal/handler"
+	"github.com/astalum/vacaro-back/internal/icloud"
 	appmiddleware "github.com/astalum/vacaro-back/internal/middleware"
 	"github.com/astalum/vacaro-back/internal/repository"
 	"github.com/astalum/vacaro-back/internal/service"
@@ -64,6 +65,11 @@ func run() error {
 	}
 	store := repository.New(db)
 	application := service.New(store, cfg.GuestTTL, cfg.PublicAppURL)
+	icloudBox, err := auth.NewPurposeBox(cfg.SessionKey, "icloud-calendar")
+	if err != nil {
+		return fmt.Errorf("create iCloud credential cipher: %w", err)
+	}
+	application.ConfigureICloud(icloud.New(), icloudBox)
 	if cfg.Google.Enabled {
 		tokenBox, err := auth.NewBox(cfg.Google.TokenEncryptionKey)
 		if err != nil {

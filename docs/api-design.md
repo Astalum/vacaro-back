@@ -1054,3 +1054,20 @@ stateDiagram-v2
 ## 専用カレンダーへの登録権限
 
 新しい連携URLは`calendar.events.freebusy`、`calendar.calendarlist.readonly`、`calendar.app.created`を要求する。`calendar.events`を持つだけの旧接続は`write_enabled=false`、確定画面では`write_permission_required`となり、再接続を案内する。読み取り機能は維持する。専用カレンダーの管理権限を許可した連携完了時に「Vacaro」を作成し、再接続では保存済みIDを再利用する。予定登録時にも存在を確認し、削除済みの場合だけ再作成する。確定解除の削除ではカレンダーを作成しない。メインカレンダーへのフォールバックは行わない。
+
+## iCloudカレンダー
+
+いずれも通常のログインまたはゲストセッションが必要。応答は`Cache-Control: no-store`。JSONエラーコードは`icloud_*`で、Google連携の状態とは独立する。
+
+| メソッド | パス | 用途 |
+|---|---|---|
+| POST | `/api/v1/integrations/icloud-calendar` | `apple_account`と`app_password`を受け取り、接続を確認して専用カレンダーを作成・再利用する。認証情報は暗号化して保存する。 |
+| GET | `/api/v1/integrations/icloud-calendar/calendars` | `account`（Apple Accountのメールアドレス）と`calendars`（id、summary、background_color、is_vacaro）を返す。パスワードは返さない。 |
+| DELETE | `/api/v1/integrations/icloud-calendar` | 保存された接続情報を削除する。Apple側のカレンダーは削除しない。 |
+| POST | `/api/v1/events/{event_id}/icloud-calendar-availability/preview` | `calendar_ids`で選んだiCloudカレンダーから空き時間を計算する。省略時は最初の通常カレンダー。最大50件。イベント参加者のみ。回答は更新しない。 |
+| GET | `/api/v1/events/{event_id}/icloud-confirmation-calendar` | 接続状態と全体・グループ予定の同期結果を返す。Googleのconfirmation-calendarと同じ形。 |
+| POST | `/api/v1/events/{event_id}/icloud-confirmation-calendar` | `group_id`（全体予定はnull）を受け取り、自分のiCloudへ登録を再試行する。グループは所属メンバーだけ実行可能。 |
+
+プレビューは繰り返しをiCloud側で展開し、キャンセル・TRANSPARENTの予定を除外する。終日予定のDTENDは排他的に扱う。カレンダーの取得失敗や未展開の繰り返しで部分的な空き時間を返さない。インポート元は`icloud_calendar`。保存済み回答は従来どおり更新時の入力を検証して保存する。
+
+確認APIやグループ確定では、接続済み参加者のiCloudにも自動登録する。同期失敗によってVacaroの確定は巻き戻さない。確定解除・イベント取り消し時は対応するiCloud予定を削除する。外部への招待通知を作らず、専用カレンダーの固定UIDだけを更新する。

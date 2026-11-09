@@ -33,6 +33,12 @@ func (a *API) Register(mux *http.ServeMux) {
 	eventAuthenticated := func(handler http.HandlerFunc) http.Handler {
 		return appmiddleware.AuthenticateEvent(a.sessions, handler)
 	}
+	mux.Handle("POST /api/v1/integrations/icloud-calendar", authenticated(a.connectICloud))
+	mux.Handle("GET /api/v1/integrations/icloud-calendar/calendars", authenticated(a.listICloudCalendars))
+	mux.Handle("DELETE /api/v1/integrations/icloud-calendar", authenticated(a.disconnectICloud))
+	mux.Handle("POST /api/v1/events/{event_id}/icloud-calendar-availability/preview", authenticated(a.previewICloud))
+	mux.Handle("GET /api/v1/events/{event_id}/icloud-confirmation-calendar", authenticated(a.getICloudCalendarStatus))
+	mux.Handle("POST /api/v1/events/{event_id}/icloud-confirmation-calendar", authenticated(a.syncICloudCalendar))
 	mux.Handle("GET /api/v1/me", authenticated(a.getMe))
 	mux.Handle("PATCH /api/v1/me", authenticated(a.updateMe))
 	mux.Handle("DELETE /api/v1/session", authenticated(a.deleteSession))

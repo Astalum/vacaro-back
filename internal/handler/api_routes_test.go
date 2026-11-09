@@ -35,6 +35,12 @@ func TestAuthenticatedAPIRoutesRequireSession(t *testing.T) {
 		method string
 		path   string
 	}{
+		{http.MethodPost, "/api/v1/integrations/icloud-calendar"},
+		{http.MethodGet, "/api/v1/integrations/icloud-calendar/calendars"},
+		{http.MethodDelete, "/api/v1/integrations/icloud-calendar"},
+		{http.MethodPost, "/api/v1/events/event-1/icloud-calendar-availability/preview"},
+		{http.MethodGet, "/api/v1/events/event-1/icloud-confirmation-calendar"},
+		{http.MethodPost, "/api/v1/events/event-1/icloud-confirmation-calendar"},
 		{http.MethodGet, "/api/v1/me"},
 		{http.MethodPatch, "/api/v1/me"},
 		{http.MethodDelete, "/api/v1/session"},

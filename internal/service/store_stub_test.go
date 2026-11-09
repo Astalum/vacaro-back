@@ -9,6 +9,13 @@ import (
 )
 
 type storeStub struct {
+	clearAllICloudSyncs   func(context.Context, string) error
+	saveICloud            func(context.Context, string, []byte, string) error
+	getICloud             func(context.Context, string) ([]byte, string, error)
+	deleteICloud          func(context.Context, string) error
+	upsertICloudSync      func(context.Context, string, *string, string, string, string) (domain.ConfirmationCalendarSync, error)
+	listICloudSyncs       func(context.Context, string, string) ([]domain.ConfirmationCalendarSync, error)
+	clearICloudSync       func(context.Context, string, *string) error
 	createGuest           func(context.Context, string, string, time.Time) (domain.User, error)
 	getUser               func(context.Context, string) (domain.User, error)
 	updateUser            func(context.Context, string, string, string) (domain.User, error)
@@ -189,4 +196,42 @@ func (s storeStub) GetGoogleCalendarDestination(ctx context.Context, userID stri
 		return s.getDestination(ctx, userID)
 	}
 	return "vacaro-calendar", nil
+}
+
+func (s storeStub) SaveICloudConnection(ctx context.Context, id string, data []byte, calendarID string) error {
+	return s.saveICloud(ctx, id, data, calendarID)
+}
+func (s storeStub) GetICloudConnection(ctx context.Context, id string) ([]byte, string, error) {
+	if s.getICloud == nil {
+		return nil, "", domain.ErrICloudNotConnected
+	}
+	return s.getICloud(ctx, id)
+}
+func (s storeStub) DeleteICloudConnection(ctx context.Context, id string) error {
+	return s.deleteICloud(ctx, id)
+}
+func (s storeStub) UpsertICloudCalendarSync(ctx context.Context, eventID string, groupID *string, userID, calendarID, status string) (domain.ConfirmationCalendarSync, error) {
+	if s.upsertICloudSync != nil {
+		return s.upsertICloudSync(ctx, eventID, groupID, userID, calendarID, status)
+	}
+	return domain.ConfirmationCalendarSync{EventID: eventID, GroupID: groupID, UserID: userID, Status: status}, nil
+}
+func (s storeStub) ListICloudCalendarSyncs(ctx context.Context, eventID, userID string) ([]domain.ConfirmationCalendarSync, error) {
+	if s.listICloudSyncs != nil {
+		return s.listICloudSyncs(ctx, eventID, userID)
+	}
+	return []domain.ConfirmationCalendarSync{}, nil
+}
+func (s storeStub) ClearICloudCalendarSync(ctx context.Context, eventID string, groupID *string) error {
+	if s.clearICloudSync != nil {
+		return s.clearICloudSync(ctx, eventID, groupID)
+	}
+	return nil
+}
+
+func (s storeStub) ClearAllICloudCalendarSyncs(ctx context.Context, userID string) error {
+	if s.clearAllICloudSyncs != nil {
+		return s.clearAllICloudSyncs(ctx, userID)
+	}
+	return nil
 }

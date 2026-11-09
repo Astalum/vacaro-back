@@ -3,6 +3,14 @@ package domain
 import "errors"
 
 var (
+	ErrICloudNotConfigured            = errors.New("iCloud integration is not configured")
+	ErrICloudNotConnected             = errors.New("iCloud Calendar is not connected")
+	ErrICloudReconnectRequired        = errors.New("iCloud Calendar must be reconnected")
+	ErrICloudPermission               = errors.New("iCloud Calendar permission is required")
+	ErrICloudUnavailable              = errors.New("iCloud calendar is unavailable")
+	ErrICloudTemporarilyUnavailable   = errors.New("iCloud Calendar is temporarily unavailable")
+	ErrICloudSyncFailed               = errors.New("iCloud Calendar sync failed")
+	ErrICloudConflict                 = errors.New("iCloud calendar event was changed")
 	ErrNotFound                       = errors.New("resource not found")
 	ErrPermissionDenied               = errors.New("permission denied")
 	ErrAlreadyJoined                  = errors.New("already joined")
