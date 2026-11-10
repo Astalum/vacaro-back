@@ -70,6 +70,7 @@ type Store interface {
 	CreateGuest(context.Context, string, string, time.Time) (domain.User, error)
 	GetUser(context.Context, string) (domain.User, error)
 	UpdateUser(context.Context, string, string, string) (domain.User, error)
+	SetAvailabilityDefault(context.Context, string, string) (domain.User, error)
 	CreateEvent(context.Context, repository.CreateEventParams) (domain.Event, error)
 	ListEvents(context.Context, string, string, *time.Time, *string, int) ([]domain.Event, error)
 	GetEventForUser(context.Context, string, string) (domain.Event, error)

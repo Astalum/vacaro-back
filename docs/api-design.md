@@ -1071,3 +1071,7 @@ stateDiagram-v2
 プレビューは繰り返しをiCloud側で展開し、キャンセル・TRANSPARENTの予定を除外する。終日予定のDTENDは排他的に扱う。カレンダーの取得失敗や未展開の繰り返しで部分的な空き時間を返さない。インポート元は`icloud_calendar`。保存済み回答は従来どおり更新時の入力を検証して保存する。
 
 確認APIやグループ確定では、接続済み参加者のiCloudにも自動登録する。同期失敗によってVacaroの確定は巻き戻さない。確定解除・イベント取り消し時は対応するiCloud予定を削除する。外部への招待通知を作らず、専用カレンダーの固定UIDだけを更新する。
+
+## 空き時間の初期状態
+
+`PUT /api/v1/me/availability-default` は認証ユーザー自身の `availability_default` を更新し、ユーザー情報を返す。値は `available`（すべて都合がいい）または `unavailable`（すべて都合が悪い）のみ。`GET /me` とイベントの `GET /events/:event_id/response-user` にも同じ設定を含める。プロフィール更新ではこの設定を維持する。

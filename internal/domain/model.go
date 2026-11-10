@@ -3,14 +3,15 @@ package domain
 import "time"
 
 type User struct {
-	ID             string     `json:"id"`
-	AccountType    string     `json:"account_type"`
-	DisplayName    string     `json:"display_name"`
-	TimeZone       string     `json:"time_zone"`
-	Email          *string    `json:"email"`
-	GuestExpiresAt *time.Time `json:"guest_expires_at"`
-	CreatedAt      time.Time  `json:"created_at"`
-	UpdatedAt      time.Time  `json:"updated_at"`
+	ID                  string     `json:"id"`
+	AccountType         string     `json:"account_type"`
+	DisplayName         string     `json:"display_name"`
+	TimeZone            string     `json:"time_zone"`
+	AvailabilityDefault string     `json:"availability_default"`
+	Email               *string    `json:"email"`
+	GuestExpiresAt      *time.Time `json:"guest_expires_at"`
+	CreatedAt           time.Time  `json:"created_at"`
+	UpdatedAt           time.Time  `json:"updated_at"`
 }
 
 type Event struct {

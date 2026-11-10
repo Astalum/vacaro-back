@@ -43,6 +43,7 @@ func (a *API) Register(mux *http.ServeMux) {
 	mux.Handle("PUT /api/v1/integrations/calendar-preference", authenticated(a.setCalendarPreference))
 	mux.Handle("GET /api/v1/me", authenticated(a.getMe))
 	mux.Handle("PATCH /api/v1/me", authenticated(a.updateMe))
+	mux.Handle("PUT /api/v1/me/availability-default", authenticated(a.setAvailabilityDefault))
 	mux.Handle("DELETE /api/v1/session", authenticated(a.deleteSession))
 	mux.Handle("POST /api/v1/events", authenticated(a.createEvent))
 	mux.Handle("GET /api/v1/events", authenticated(a.listEvents))

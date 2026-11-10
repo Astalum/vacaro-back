@@ -25,14 +25,14 @@ func (s *Store) CreateGuest(ctx context.Context, displayName, timeZone string, e
 	row := s.pool.QueryRow(ctx, `
 		INSERT INTO users (account_type, display_name, time_zone, guest_expires_at)
 		VALUES ('guest', $1, $2, $3)
-		RETURNING id::text, account_type, display_name, time_zone, email, guest_expires_at, created_at, updated_at
+		RETURNING id::text, account_type, display_name, time_zone, availability_default, email, guest_expires_at, created_at, updated_at
 	`, displayName, timeZone, expiresAt)
 	return scanUser(row)
 }
 
 func (s *Store) GetUser(ctx context.Context, userID string) (domain.User, error) {
 	row := s.pool.QueryRow(ctx, `
-		SELECT id::text, account_type, display_name, time_zone, email, guest_expires_at, created_at, updated_at
+		SELECT id::text, account_type, display_name, time_zone, availability_default, email, guest_expires_at, created_at, updated_at
 		FROM users
 		WHERE id = $1 AND anonymized_at IS NULL
 	`, userID)
@@ -44,7 +44,7 @@ func (s *Store) UpdateUser(ctx context.Context, userID, displayName, timeZone st
 		UPDATE users
 		SET display_name = $2, time_zone = $3, updated_at = CURRENT_TIMESTAMP
 		WHERE id = $1 AND anonymized_at IS NULL
-		RETURNING id::text, account_type, display_name, time_zone, email, guest_expires_at, created_at, updated_at
+		RETURNING id::text, account_type, display_name, time_zone, availability_default, email, guest_expires_at, created_at, updated_at
 	`, userID, displayName, timeZone)
 	return scanUser(row)
 }
@@ -589,7 +589,7 @@ type rowScanner interface {
 
 func scanUser(row rowScanner) (domain.User, error) {
 	var value domain.User
-	err := row.Scan(&value.ID, &value.AccountType, &value.DisplayName, &value.TimeZone, &value.Email, &value.GuestExpiresAt, &value.CreatedAt, &value.UpdatedAt)
+	err := row.Scan(&value.ID, &value.AccountType, &value.DisplayName, &value.TimeZone, &value.AvailabilityDefault, &value.Email, &value.GuestExpiresAt, &value.CreatedAt, &value.UpdatedAt)
 	return value, translateNotFound(err)
 }
 

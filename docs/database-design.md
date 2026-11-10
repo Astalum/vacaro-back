@@ -504,3 +504,7 @@ Google連携用テーブルは、`000005_create_google_integrations`で追加す
 `icloud_calendar_syncs`はGoogleの同期記録とは別テーブル。event_id、group_id（全体はNULL）、user_id、calendar_id、status（synced/failed）、attempted_atを保存する。全体予定は(event_id,user_id)、グループは(event_id,group_id,user_id)の部分一意インデックスを持つ。現在の接続先と異なる成功記録は表示しない。再接続時や専用カレンダーの再作成時に旧同期記録を消し、登録済みの誤表示を防ぐ。
 
 availability_intervals.sourceには`icloud_calendar`も許可する。iCloudから取得した予定本文は保存しない。既存Googleアカウントへのゲスト統合では、登録済みアカウント側にiCloud接続がなければ、ゲストの接続と同期記録も引き継ぐ。
+
+## 空き時間の初期状態
+
+`users.availability_default` は `available` / `unavailable` の選択値で、初期値は `unavailable`。アカウント単位で保持し、既存の参加者回答と空き時間区間は変更しない。

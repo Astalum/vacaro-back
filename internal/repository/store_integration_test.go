@@ -55,8 +55,19 @@ func TestStoreIntegration(t *testing.T) {
 		}
 	})
 
+	if owner.AvailabilityDefault != "unavailable" {
+		t.Fatalf("new user's initial availability = %q", owner.AvailabilityDefault)
+	}
+	preferredOwner, err := store.SetAvailabilityDefault(ctx, owner.ID, "available")
+	if err != nil || preferredOwner.AvailabilityDefault != "available" {
+		t.Fatalf("SetAvailabilityDefault() = %#v, %v", preferredOwner, err)
+	}
+	loadedOwner, err := store.GetUser(ctx, owner.ID)
+	if err != nil || loadedOwner.AvailabilityDefault != "available" {
+		t.Fatalf("GetUser() preference = %#v, %v", loadedOwner, err)
+	}
 	updatedOwner, err := store.UpdateUser(ctx, owner.ID, "Updated Owner", "Asia/Tokyo")
-	if err != nil || updatedOwner.DisplayName != "Updated Owner" {
+	if err != nil || updatedOwner.DisplayName != "Updated Owner" || updatedOwner.AvailabilityDefault != "available" {
 		t.Fatalf("UpdateUser() = %#v, %v", updatedOwner, err)
 	}
 	if _, err := store.GetUser(ctx, owner.ID); err != nil {
