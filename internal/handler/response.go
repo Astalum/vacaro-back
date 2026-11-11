@@ -59,6 +59,7 @@ func writeAPIError(w http.ResponseWriter, r *http.Request, err error) {
 		status, code, message = 409, "icloud_conflict", "iCloud側で予定が変更されました。再読み込みしてから再試行してください"
 	case errors.As(err, &validationError):
 		status, code, message, fields = http.StatusUnprocessableEntity, "validation_failed", "入力内容を確認してください", validationError.Fields
+		slog.Warn("request validation failed", "route", r.Pattern, "fields", fields, "request_id", appmiddleware.RequestIDFromContext(r.Context()))
 	case errors.Is(err, domain.ErrNotFound):
 		status, code, message = http.StatusNotFound, "resource_not_found", "対象が見つかりません"
 	case errors.Is(err, domain.ErrPermissionDenied):

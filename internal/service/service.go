@@ -475,9 +475,13 @@ func (s *Service) LeaveEvent(ctx context.Context, eventID, userID string) error 
 
 type IntervalInput struct{ StartAt, EndAt time.Time }
 
+// Calendar imports over several weeks can contain hundreds of free windows.
+// Retain a bounded count within the API's existing 1 MiB request-body limit.
+const maxAvailabilityIntervals = 10_000
+
 func (s *Service) ReplaceAvailability(ctx context.Context, eventID, userID string, inputs []IntervalInput) ([]domain.AvailabilityInterval, error) {
-	if len(inputs) > 100 {
-		return nil, &ValidationError{Fields: map[string]string{"intervals": "100件以下で指定してください"}}
+	if len(inputs) > maxAvailabilityIntervals {
+		return nil, &ValidationError{Fields: map[string]string{"intervals": "10000件以下で指定してください"}}
 	}
 	event, err := s.store.GetEventForUser(ctx, eventID, userID)
 	if err != nil {
